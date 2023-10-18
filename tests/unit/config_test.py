@@ -1,3 +1,4 @@
+import os
 from copy import deepcopy
 
 import pytest
@@ -27,6 +28,8 @@ from powerdns_api_proxy.models import (
     RRSETRequest,
     ZoneNotAllowedException,
 )
+
+os.environ['PROXY_CONFIG_PATH'] = './config-example.yml'
 
 dummy_proxy_zone = ProxyConfigZone(name='test.example.com.')
 dummy_proxy_environment_token = 'lashflkashlfgkashglashglashgl'

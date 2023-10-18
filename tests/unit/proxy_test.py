@@ -1,3 +1,4 @@
+import os
 from typing import Generator
 from unittest.mock import AsyncMock, patch
 
@@ -36,6 +37,8 @@ dummy_proxy_config = ProxyConfig(
     pdns_api_url='bluub',
     environments=[dummy_proxy_environment, dummy_proxy_environment2],
 )
+
+os.environ['PROXY_CONFIG_PATH'] = './config-example.yml'
 
 
 @pytest.fixture()
