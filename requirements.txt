@@ -1,0 +1,7 @@
+aiohttp==3.8.6
+fastapi==0.100.0
+httpx
+prometheus-fastapi-instrumentator==6.0.0
+pyyaml==6.0
+sentry-sdk[fastapi]==1.32.0
+uvicorn==0.23.2

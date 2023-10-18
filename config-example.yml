@@ -1,0 +1,10 @@
+---
+pdns_api_url: https://powerdns-api-test.example.com
+pdns_api_token: ukCLNsxaOLAOcdNZ9XS
+pdns_api_verify_ssl: true
+environments:
+  - name: example-env
+    token_sha512: 127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d
+    zones:
+      - name: zone1.example.com
+      - name: zone2.example.com
