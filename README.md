@@ -39,9 +39,8 @@ The Upstream PowerDNS API must be maintained at the top level.
 pdns_api_url: "https://powerdns-api.example.com"
 pdns_api_token: "blablub"
 pdns_api_verify_ssl: True
-environments: [
-    ...
-]
+environments:
+  ...
 ```
 
 ### Environment
@@ -54,9 +53,8 @@ The hash is then compared with the hashed value from the API client request.
 environments:
   - name: "Test1"
     token_sha512: "1954a12ef0bf45b3a1797437509037f178af846d880115d57668a8aaa05732deedcbbd02bfa296b4f4e043b437b733fd6131933cfdc0fb50c4cf7f9f2bdaa836"
-    zones: [
-        ...
-    ]
+    zones:
+      ...
 ```
 
 A token / hash pair can be created with the following commands:
@@ -78,9 +76,8 @@ These are specified in a list.
 environments:
     - name: "Test1"
       description: "Test Environment"
-      ...
       zones:
-          - name: "example.com"
+        - name: "example.com"
 ```
 
 > Simply specifying the zone without any further settings allows `write` permissions within the zone.
@@ -98,9 +95,9 @@ environments:
     - name: "Test1"
       ...
       zones:
-          - name: "example.com"
-            records:
-                - "test.example.com"
+       - name: "example.com"
+         records:
+           - "test.example.com"
 ```
 
 ##### Services
@@ -115,13 +112,12 @@ The `ACME` service allows, if only single records are specified, to create an AC
 ...
 environments:
     - name: "Test1"
-      ...
       zones:
         - name: "example.com"
-            records:
-              - "test.example.com"
-            services:
-               acme: true
+          records:
+            - "test.example.com"
+          services:
+            acme: true
 ```
 
 ##### Admin
@@ -133,10 +129,9 @@ With this it is possible to create and delete the zone.
 ...
 environments:
     - name: "Test1"
-      ...
       zones:
         - name: "example.com"
-            admin: true
+          admin: true
 ```
 
 ##### Subzones
@@ -149,10 +144,9 @@ With this it is possible that the token also gets rights on all subzones which a
 ...
 environments:
     - name: "Test1"
-      ...
       zones:
         - name: "example.com"
-            subzones: true
+          subzones: true
 ```
 
 #### Global read
@@ -167,7 +161,6 @@ This allows the token to read all zones in the PowerDNS.
 ...
 environments:
     - name: "Test1"
-      ...
       global_read_only: true
 ```
 
@@ -184,7 +177,6 @@ This makes it possible to use the `/search-data` endpoint.
 ...
 environments:
     - name: "Test1"
-      ...
       global_search: true
 ```
 
