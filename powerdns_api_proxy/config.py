@@ -17,6 +17,7 @@ from powerdns_api_proxy.models import (
     RRSETRequest,
     ZoneNotAllowedException,
 )
+from powerdns_api_proxy.utils import check_zones_equal
 
 
 @lru_cache(maxsize=1)
@@ -88,22 +89,22 @@ def get_only_pdns_zones_allowed(
 
 
 def check_pdns_zone_allowed(environment: ProxyConfigEnvironment, zone: str) -> bool:
+    '''Returns True if zone is allowed in the environment'''
     if environment.global_read_only:
         return True
+
     try:
-        env_zone = get_zone_config(environment, zone)
-        logger.info(f'Zone {env_zone.name} allowed for environment {environment.name}')
+        _ = environment.get_zone_if_allowed(zone)
         return True
-    except HTTPException:
-        pass
-    return False
+    except ZoneNotAllowedException:
+        return False
 
 
 def check_pdns_zone_admin(environment: ProxyConfigEnvironment, zone: str) -> bool:
     try:
-        env_zone = get_zone_config(environment, zone)
+        env_zone = environment.get_zone_if_allowed(zone)
         return env_zone.admin
-    except HTTPException:
+    except ZoneNotAllowedException:
         pass
     return False
 
@@ -124,7 +125,7 @@ def check_rrset_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
         return True
 
     for record in zone.records:
-        if zones_equal(rrset['name'], record):
+        if check_zones_equal(rrset['name'], record):
             return True
 
     if check_acme_record_allowed(zone, rrset):
@@ -143,7 +144,7 @@ def check_acme_record_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
         return False
 
     for record in zone.records:
-        if zones_equal(f'_acme-challenge.{record}', rrset['name']):
+        if check_zones_equal(f'_acme-challenge.{record}', rrset['name']):
             logger.info(f'ACME challenge for record {record} is allowed')
             return True
 
@@ -163,31 +164,21 @@ def ensure_rrsets_request_allowed(zone: ProxyConfigZone, request: RRSETRequest) 
     return True
 
 
-def get_zone_config(environment: ProxyConfigEnvironment, zone: str) -> ProxyConfigZone:
-    for z in environment.zones:
-        if zones_equal(z.name, zone):
-            return z
-        elif z.subzones:
-            if check_subzone(zone, z.name):
-                return ProxyConfigZone(
-                    name=zone,
-                    subzones=z.subzones,
-                    services=z.services,
-                    admin=z.admin,
-                    all_records=z.all_records,
-                    records=z.records,
-                    read_only=z.read_only,
-                )
-    raise ZoneNotAllowedException()
-
-
-def zones_equal(zone1: str, zone2: str) -> bool:
-    '''Checks if zones equal with or without trailing dot'''
-    return zone1.rstrip('.') == zone2.rstrip('.')
-
-
-def check_subzone(zone: str, main_zone: str) -> bool:
-    if zone.rstrip('.').endswith(main_zone.rstrip('.')):
-        logger.debug(f'"{zone}" is a subzone of "{main_zone}"')
-        return True
-    return False
+# def get_zone_config(environment: ProxyConfigEnvironment, zone: str) -> ProxyConfigZone:
+#     if not check_pdns_zone_allowed:
+#         raise ZoneNotAllowedException()
+#     for z in environment.zones:
+#         if check_zones_equal(z.name, zone):
+#             return z
+#         elif z.subzones:
+#             if check_subzone(zone, z.name):
+#                 return ProxyConfigZone(
+#                     name=zone,
+#                     subzones=z.subzones,
+#                     services=z.services,
+#                     admin=z.admin,
+#                     all_records=z.all_records,
+#                     records=z.records,
+#                     read_only=z.read_only,
+#                 )
+#     raise ZoneNotAllowedException()

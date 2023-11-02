@@ -10,12 +10,10 @@ from powerdns_api_proxy.config import (
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
     check_rrset_allowed,
-    check_subzone,
     check_token_defined,
     ensure_rrsets_request_allowed,
     get_environment_for_token,
     get_only_pdns_zones_allowed,
-    get_zone_config,
     token_defined,
 )
 from powerdns_api_proxy.models import (
@@ -171,14 +169,14 @@ def test_check_pdns_zone_admin_true_subzone():
 
 def test_get_zone_config():
     env = dummy_proxy_environment
-    zone = get_zone_config(env, dummy_proxy_zone.name)
+    zone = env.get_zone_if_allowed(dummy_proxy_zone.name)
     assert zone.name == dummy_proxy_zone.name
 
 
 def test_get_zone_config_not_allowed():
     env = dummy_proxy_environment
     with pytest.raises(HTTPException) as err:
-        get_zone_config(env, 'blablub_mich_gibtsnicht.example.com.')
+        env.get_zone_if_allowed('blablub_mich_gibtsnicht.example.com.')
     assert err.value.detail == ZoneNotAllowedException().detail
     assert err.value.status_code == ZoneNotAllowedException().status_code
 
@@ -187,21 +185,21 @@ def test_get_zone_config_subzone():
     env = dummy_proxy_environment
     dummy_proxy_environment.zones[0].subzones = True
     subzone = 'blabluuub.' + dummy_proxy_environment.zones[0].name
-    assert get_zone_config(env, subzone)
+    assert env.get_zone_if_allowed(subzone)
 
 
 def test_get_zone_config_subzone_subzone():
     env = dummy_proxy_environment
     dummy_proxy_environment.zones[0].subzones = True
     subzone = 'blabluuub.subzone.' + dummy_proxy_environment.zones[0].name
-    assert get_zone_config(env, subzone)
+    assert env.get_zone_if_allowed(subzone)
 
 
 def test_get_zone_config_subzone_not_allowed():
     env = dummy_proxy_environment
     subzone = 'blabluuub.' + dummy_proxy_environment.zones[0].name + 'test.'
     with pytest.raises(HTTPException) as err:
-        assert get_zone_config(env, subzone)
+        assert env.get_zone_if_allowed(subzone)
     assert err.value.detail == ZoneNotAllowedException().detail
     assert err.value.status_code == ZoneNotAllowedException().status_code
 
@@ -211,7 +209,7 @@ def test_get_zone_config_no_subzone():
     dummy_proxy_environment.zones[0].subzones = False
     subzone = 'blabluuub.' + dummy_proxy_environment.zones[0].name
     with pytest.raises(HTTPException) as err:
-        assert get_zone_config(env, subzone)
+        assert env.get_zone_if_allowed(subzone)
     assert err.value.detail == ZoneNotAllowedException().detail
     assert err.value.status_code == ZoneNotAllowedException().status_code
 
@@ -457,18 +455,6 @@ def test_check_acme_record_not_allowed_false_challenge():
         comments=[],
     )
     assert not check_acme_record_allowed(zone, rrset)
-
-
-def test_check_subzone_true():
-    zone = 'myzone.main.example.com'
-    main = 'main.example.com.'
-    assert check_subzone(zone, main)
-
-
-def test_check_subzone_false():
-    zone = 'myzone.test.example.com'
-    main = 'main.example.com.'
-    assert not check_subzone(zone, main)
 
 
 def test_search_not_allowed():

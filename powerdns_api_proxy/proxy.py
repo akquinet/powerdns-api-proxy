@@ -18,7 +18,6 @@ from powerdns_api_proxy.config import (
     ensure_rrsets_request_allowed,
     get_environment_for_token,
     get_only_pdns_zones_allowed,
-    get_zone_config,
     load_config,
 )
 from powerdns_api_proxy.logging import logger
@@ -316,7 +315,7 @@ async def update_zone_rrset(
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f'Zone {zone_id} not allowed for environment {environment.name}')
         raise ZoneNotAllowedException()
-    zone = get_zone_config(environment, zone_id)
+    zone = environment.get_zone_if_allowed(zone_id)
     ensure_rrsets_request_allowed(zone, await request.json())
     resp = await pdns.patch(
         f'/api/v1/servers/{server_id}/zones/{zone_id}',
