@@ -162,23 +162,3 @@ def ensure_rrsets_request_allowed(zone: ProxyConfigZone, request: RRSETRequest) 
             raise HTTPException(403, f'RRSET {rrset["name"]} not allowed')
         logger.info(f'RRSET {rrset["name"]} allowed')
     return True
-
-
-# def get_zone_config(environment: ProxyConfigEnvironment, zone: str) -> ProxyConfigZone:
-#     if not check_pdns_zone_allowed:
-#         raise ZoneNotAllowedException()
-#     for z in environment.zones:
-#         if check_zones_equal(z.name, zone):
-#             return z
-#         elif z.subzones:
-#             if check_subzone(zone, z.name):
-#                 return ProxyConfigZone(
-#                     name=zone,
-#                     subzones=z.subzones,
-#                     services=z.services,
-#                     admin=z.admin,
-#                     all_records=z.all_records,
-#                     records=z.records,
-#                     read_only=z.read_only,
-#                 )
-#     raise ZoneNotAllowedException()
