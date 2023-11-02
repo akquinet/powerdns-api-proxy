@@ -127,6 +127,12 @@ class ResponseAllowed(BaseModel):
     zones: list[ProxyConfigZone]
 
 
+class ResponseZoneAllowed(BaseModel):
+    zone: str
+    allowed: bool
+    config: ProxyConfigZone | None = None
+
+
 class ZoneNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403
