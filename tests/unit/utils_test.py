@@ -1,10 +1,12 @@
 import pytest
+import yaml
 
 from powerdns_api_proxy.utils import (
     check_subzone,
     check_zone_in_regex,
     check_zones_equal,
 )
+from tests.fixtures import FIXTURES_DIR
 
 
 def test_check_subzone_true():
@@ -29,6 +31,7 @@ def test_zones_equal_true():
     'zone, regex',
     [
         ('prod.customer.example.com', '.*customer.example.com'),
+        ('prod.customer.example.com', '.*\\.customer.example.com'),
         ('dns.prod.customer.example.com.', '.*customer.example.com'),
         ('prod.customer.example.com.', r'\w+\.customer.example.com'),
         ('customer.example.com.', r'\w*customer.example.com'),
@@ -53,3 +56,10 @@ def test_zones_in_regex_true(zone, regex):
 )
 def test_zones_in_regex_false(zone, regex):
     assert not check_zone_in_regex(zone, regex)
+
+
+def test_regex_with_parsed_yaml():
+    with open(FIXTURES_DIR + '/test_regex_parsing.yaml') as f:
+        parsed = yaml.safe_load(f)
+    regex_string = parsed['name']
+    assert check_zone_in_regex('customer.example.com.', regex_string)

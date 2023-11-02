@@ -163,7 +163,7 @@ In this example all zones which end with `.example.com` are allowed.
 environments:
   - name: "Test1"
     zones:
-     - name: ".*\.example.com"
+     - name: ".*\\.example.com"
        regex: true
 ```
 
