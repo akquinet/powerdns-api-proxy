@@ -18,13 +18,13 @@ from powerdns_api_proxy.config import (
     ensure_rrsets_request_allowed,
     get_environment_for_token,
     get_only_pdns_zones_allowed,
-    get_zone_config,
     load_config,
 )
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.metrics import http_requests_total_environment
 from powerdns_api_proxy.models import (
     ResponseAllowed,
+    ResponseZoneAllowed,
     RessourceNotAllowedException,
     SearchNotAllowedException,
     ZoneAdminNotAllowedException,
@@ -126,6 +126,24 @@ async def get_allowed_ressources(X_API_Key: str = Header()):
     logger.info('Checking allowed ressources for given api key')
     environment = get_environment_for_token(config, X_API_Key)
     return ResponseAllowed(zones=environment.zones)
+
+
+@router_proxy.get(
+    '/zone-allowed',
+    response_model=ResponseZoneAllowed,
+)
+async def get_zone_allowed(zone: str, X_API_Key: str = Header()):
+    '''
+    Check if the given zone is allowed for the given token.
+    Also returns the zone config that allows the zone.
+    '''
+    logger.debug('Checking if zone is allowed for given api key')
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_zone_allowed(environment, zone):
+        return ResponseZoneAllowed(zone=zone, allowed=False)
+
+    zone_config = environment.get_zone_if_allowed(zone)
+    return ResponseZoneAllowed(zone=zone, allowed=True, config=zone_config)
 
 
 @app.get('/api', dependencies=[Depends(dependency_check_token_defined)])
@@ -316,7 +334,7 @@ async def update_zone_rrset(
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f'Zone {zone_id} not allowed for environment {environment.name}')
         raise ZoneNotAllowedException()
-    zone = get_zone_config(environment, zone_id)
+    zone = environment.get_zone_if_allowed(zone_id)
     ensure_rrsets_request_allowed(zone, await request.json())
     resp = await pdns.patch(
         f'/api/v1/servers/{server_id}/zones/{zone_id}',

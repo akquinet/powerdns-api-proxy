@@ -4,6 +4,11 @@ from fastapi import HTTPException
 from pydantic import BaseModel, field_validator
 
 from powerdns_api_proxy.logging import logger
+from powerdns_api_proxy.utils import (
+    check_subzone,
+    check_zone_in_regex,
+    check_zones_equal,
+)
 
 
 class ProxyConfigServices(BaseModel):
@@ -12,12 +17,16 @@ class ProxyConfigServices(BaseModel):
 
 class ProxyConfigZone(BaseModel):
     '''
+    `name` is the zone name.
+    `regex` should be set to `True` if `name` is a regex.
     `admin` enabled creating and deleting the zone.
     `subzones` sets the same permissions on all subzones.
     `all_records` will be set to `True` if no `records` are defined.
+    `read_only` will be set to `True` if `global_read_only` is `True`.
     '''
 
     name: str
+    regex: bool = False
     description: str = ''
     records: list[str] = []
     services: ProxyConfigServices = ProxyConfigServices(acme=False)
@@ -42,6 +51,7 @@ class ProxyConfigEnvironment(BaseModel):
     zones: list[ProxyConfigZone]
     global_read_only: bool = False
     global_search: bool = False
+    _zones_lookup: dict[str, ProxyConfigZone] = {}
 
     @field_validator('name')
     @classmethod
@@ -65,6 +75,31 @@ class ProxyConfigEnvironment(BaseModel):
             )
             for zone in self.zones:
                 zone.read_only = True
+
+                # populate zones lookup
+                self._zones_lookup[zone.name] = zone
+
+    def get_zone_if_allowed(self, zone: str) -> ProxyConfigZone:
+        '''
+        Returns the zone config for the given zone name
+        Raises ZoneNotAllowedException if the zone is not allowed
+        '''
+        if zone in self._zones_lookup:
+            return self._zones_lookup[zone]
+
+        for z in self.zones:
+            if check_zones_equal(zone, z.name):
+                return z
+
+            if z.subzones and check_subzone(zone, z.name):
+                logger.debug(f'"{zone}" is a subzone of "{z.name}"')
+                return z
+
+            if z.regex and check_zone_in_regex(zone, z.name):
+                logger.debug(f'"{zone}" matches regex "{z.name}"')
+                return z
+
+        raise ZoneNotAllowedException()
 
 
 class ProxyConfig(BaseModel):
@@ -90,6 +125,12 @@ class ProxyConfig(BaseModel):
 
 class ResponseAllowed(BaseModel):
     zones: list[ProxyConfigZone]
+
+
+class ResponseZoneAllowed(BaseModel):
+    zone: str
+    allowed: bool
+    config: ProxyConfigZone | None = None
 
 
 class ZoneNotAllowedException(HTTPException):

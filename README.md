@@ -149,6 +149,24 @@ environments:
           subzones: true
 ```
 
+
+##### Regex
+
+Under a `zone` the option `regex: true` can be set.
+
+That allows use regex in the zone name.
+
+In this example all zones which end with `.example.com` are allowed.
+
+```YAML
+...
+environments:
+  - name: "Test1"
+    zones:
+     - name: ".*\\.example.com"
+       regex: true
+```
+
 #### Global read
 
 Global `read` permissions can be defined under an `environment`.

@@ -1,4 +1,5 @@
 import json
+import re
 from json.decoder import JSONDecodeError
 from typing import Union
 
@@ -12,3 +13,19 @@ async def response_json_or_text(response: ClientResponse) -> Union[dict, str]:
         return json.loads(text)
     except JSONDecodeError:
         return text
+
+
+def check_subzone(zone: str, main_zone: str) -> bool:
+    if zone.rstrip('.').endswith(main_zone.rstrip('.')):
+        return True
+    return False
+
+
+def check_zone_in_regex(zone: str, regex: str) -> bool:
+    '''Checks if zone is in regex'''
+    return re.match(regex, zone.rstrip('.')) is not None
+
+
+def check_zones_equal(zone1: str, zone2: str) -> bool:
+    '''Checks if zones equal with or without trailing dot'''
+    return zone1.rstrip('.') == zone2.rstrip('.')

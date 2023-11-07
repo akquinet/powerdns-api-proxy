@@ -79,6 +79,7 @@ def _token_missing_request(client: TestClient, method: str, path: str):
 
 get_routes = [
     '/info/allowed',
+    '/info/zone-allowed',
     '/api',
     '/api/v1/servers',
     '/api/v1/servers/localhost',
