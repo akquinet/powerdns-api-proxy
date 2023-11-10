@@ -35,7 +35,6 @@ def load_config(path: Optional[Path] = None) -> ProxyConfig:
     return config
 
 
-@lru_cache(maxsize=1000)
 def token_defined(config: ProxyConfig, token: str) -> bool:
     sha512 = hashlib.sha512()
     sha512.update(token.encode())
@@ -58,7 +57,6 @@ def dependency_check_token_defined(
     check_token_defined(load_config(), X_API_Key)
 
 
-@lru_cache(maxsize=1000)
 def get_environment_for_token(
     config: ProxyConfig, token: str
 ) -> ProxyConfigEnvironment:
