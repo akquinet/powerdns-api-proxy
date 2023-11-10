@@ -133,6 +133,14 @@ class ProxyConfig(BaseModel):
             raise ValueError('pdns_api_token must a non-empty string')
         return v
 
+    def __hash__(self):
+        return hash(
+            self.pdns_api_url
+            + self.pdns_api_token
+            + str(self.pdns_api_verify_ssl)
+            + str(self.environments)
+        )
+
 
 class ResponseAllowed(BaseModel):
     zones: list[ProxyConfigZone]
