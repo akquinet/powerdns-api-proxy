@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import TypedDict
 
 from fastapi import HTTPException
@@ -79,6 +80,16 @@ class ProxyConfigEnvironment(BaseModel):
                 # populate zones lookup
                 self._zones_lookup[zone.name] = zone
 
+    def __hash__(self):
+        return hash(
+            self.name
+            + self.token_sha512
+            + str(self.global_read_only)
+            + str(self.global_search)
+            + str(self.zones)
+        )
+
+    @lru_cache(maxsize=10000)
     def get_zone_if_allowed(self, zone: str) -> ProxyConfigZone:
         '''
         Returns the zone config for the given zone name
