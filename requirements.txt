@@ -1,5 +1,5 @@
 aiohttp==3.9.3
-fastapi==0.100.0
+fastapi==0.109.2
 httpx
 prometheus-fastapi-instrumentator==6.0.0
 pyyaml==6.0.1
