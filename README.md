@@ -41,6 +41,7 @@ pdns_api_token: "blablub"
 pdns_api_verify_ssl: True
 environments:
   ...
+
 ```
 
 ### Environment
@@ -196,6 +197,57 @@ This makes it possible to use the `/search-data` endpoint.
 environments:
     - name: "Test1"
       global_search: true
+```
+
+### Metrics of the proxy
+
+The proxy exposes metrics on the `/metrics` endpoint.
+With the `metrics_enabled` option set to `false`, the metrics can be disabled.
+
+The `metrics_require_auth` option can be used to disable the need for authentication for the `/metrics` endpoint.
+
+```yaml
+...
+metrics_enabled: false # default is true
+metrics_require_auth: false # default is true
+```
+
+#### Give an environment access to the metrics
+
+When the `metrics_proxy` option is set to `true`, the environment has access to the `/metrics` endpoint of the proxy.
+
+That is needed, when the `metrics_require_auth` option is set to `true` (default).
+
+```yaml
+...
+environments:
+    - name: "Test1"
+      metrics_proxy: true
+```
+
+#### Metrics
+
+The [prometheus-fastapi-instrumentator](https://github.com/trallnag/prometheus-fastapi-instrumentator) is used for the default metrics.
+
+Additionally http requests per environment are counted.
+
+### API Docs
+
+The API documentation can be viewed at `<url>/docs`.
+
+They can be deactivated with the `api_docs_enabled` option.
+
+```yaml
+api_docs_enabled: false # default is true
+```
+
+### Index
+
+The index page can be deactivated with the `index_enabled` option and customized with `index_html`.
+
+```yaml
+index_enabled: false # default is true
+index_html: "<html><body><h1>PowerDNS API Proxy</h1></body></html>"
 ```
 
 ## Development
