@@ -63,7 +63,7 @@ def dependency_metrics_proxy_enabled(
 ):
     try:
         environment = get_environment_for_token(load_config(), X_API_Key)
-        if not environment.proxy_metrics:
+        if not environment.metrics_proxy:
             raise MetricsNotAllowedException()
     except ValueError:
         raise MetricsNotAllowedException()
