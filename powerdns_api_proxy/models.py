@@ -210,7 +210,7 @@ class RessourceNotAllowedException(HTTPException):
 class NotAuthorizedException(HTTPException):
     def __init__(self):
         self.status_code = 401
-        self.detail = 'Not authorized'
+        self.detail = 'Unauthorized'
 
 
 class SearchNotAllowedException(HTTPException):

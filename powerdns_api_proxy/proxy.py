@@ -79,11 +79,7 @@ if config.metrics_enabled:
     if config.metrics_require_auth:
         logger.info('Enabling metrics authentication')
         instrumentator.expose(
-            app,
-            dependencies=[
-                Depends(dependency_check_token_defined),
-                Depends(dependency_metrics_proxy_enabled),
-            ],
+            app, dependencies=[Depends(dependency_metrics_proxy_enabled)]
         )
     else:
         instrumentator.expose(app)

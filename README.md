@@ -216,14 +216,17 @@ metrics_require_auth: false # default is true
 
 When the `metrics_proxy` option is set to `true`, the environment has access to the `/metrics` endpoint of the proxy.
 
-That is needed, when the `metrics_require_auth` option is set to `true` (default).
-
 ```yaml
 ...
 environments:
     - name: "Test1"
       metrics_proxy: true
 ```
+
+When `metrics_require_auth` is enabled, basic auth needs to be used.
+
+* username: name of the environment
+* password: token
 
 #### Metrics
 

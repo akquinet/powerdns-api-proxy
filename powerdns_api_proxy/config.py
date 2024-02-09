@@ -2,9 +2,10 @@ import hashlib
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from yaml import safe_load
 
 from powerdns_api_proxy.logging import logger
@@ -58,15 +59,25 @@ def dependency_check_token_defined(
     check_token_defined(load_config(), X_API_Key)
 
 
+security = HTTPBasic()
+
+
 def dependency_metrics_proxy_enabled(
-    X_API_Key: str = Header(description='API Key for the proxy.'),
+    credentials: Annotated[HTTPBasicCredentials, Depends(security)] = Header(
+        description='API Key for the proxy.'
+    ),
 ):
+    username = credentials.username
+    password = credentials.password
+
     try:
-        environment = get_environment_for_token(load_config(), X_API_Key)
+        environment = get_environment_for_token(load_config(), password)
+        if not environment.name == username:
+            raise NotAuthorizedException()
         if not environment.metrics_proxy:
             raise MetricsNotAllowedException()
     except ValueError:
-        raise MetricsNotAllowedException()
+        raise NotAuthorizedException()
 
 
 def get_environment_for_token(
