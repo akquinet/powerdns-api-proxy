@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Literal
 
@@ -15,6 +16,7 @@ from powerdns_api_proxy.config import (
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
     dependency_check_token_defined,
+    dependency_metrics_proxy_enabled,
     ensure_rrsets_request_allowed,
     get_environment_for_token,
     get_only_pdns_zones_allowed,
@@ -47,18 +49,46 @@ pdns = PDNSConnector(
     config.pdns_api_url, config.pdns_api_token, config.pdns_api_verify_ssl
 )
 
-app = FastAPI(title='PowerDNS API Proxy', version='0.1.0')
-instrumentator = Instrumentator(
-    should_group_status_codes=False,
-)
-instrumentator.add(metrics.default())
-instrumentator.instrument(app)
+
+@asynccontextmanager
+async def _startup(app: FastAPI):
+    yield
 
 
-@app.on_event('startup')
-async def _startup():
+app = FastAPI(title='PowerDNS API Proxy', version='0.1.0', lifespan=_startup)
+
+if not config.api_docs_enabled:
+    logger.info('Disabling API docs')
+    app = FastAPI(
+        title=app.title,
+        version=app.version,
+        lifespan=_startup,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+if config.metrics_enabled:
+    instrumentator = Instrumentator(
+        should_group_status_codes=False,
+    )
+    logger.info('Enabling metrics')
+    instrumentator.add(metrics.default())
     instrumentator.add(http_requests_total_environment())
-    instrumentator.expose(app)
+
+    if config.metrics_require_auth:
+        logger.info('Enabling metrics authentication')
+        instrumentator.expose(
+            app,
+            dependencies=[
+                Depends(dependency_check_token_defined),
+                Depends(dependency_metrics_proxy_enabled),
+            ],
+        )
+    else:
+        instrumentator.expose(app)
+else:
+    logger.info('Metrics are disabled')
 
 
 # Patching HTTPException to be compatible with PowerDNS API errors
@@ -87,21 +117,10 @@ router_pdns = APIRouter(
 @app.head('/', include_in_schema=False)
 @app.get('/', response_class=HTMLResponse, include_in_schema=False)
 async def hello():
-    return '''
-    <html>
-        <head>
-            <title>PowerDNS API Proxy</title>
-        </head>
-        <body>
-            <center>
-            <h1>PowerDNS API Proxy</h1>
-            <p>| <a href="/docs">Swagger Docs</a></p>
-            <q>The Domain Name Server (DNS) is the Achilles heel of the Web.<br>
-            The important thing is that it's managed responsibly.</q>
-            </center>
-        </body>
-    </html>
-'''
+    if config.index_enabled:
+        return config.index_html
+    else:
+        return HTMLResponse(status_code=404)
 
 
 @router_health.get('/pdns', status_code=HTTPStatus.OK)

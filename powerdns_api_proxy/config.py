@@ -10,6 +10,7 @@ from yaml import safe_load
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.models import (
     RRSET,
+    MetricsNotAllowedException,
     NotAuthorizedException,
     ProxyConfig,
     ProxyConfigEnvironment,
@@ -55,6 +56,17 @@ def dependency_check_token_defined(
     X_API_Key: str = Header(description='API Key for the proxy.'),
 ):
     check_token_defined(load_config(), X_API_Key)
+
+
+def dependency_metrics_proxy_enabled(
+    X_API_Key: str = Header(description='API Key for the proxy.'),
+):
+    try:
+        environment = get_environment_for_token(load_config(), X_API_Key)
+        if not environment.metrics_proxy:
+            raise MetricsNotAllowedException()
+    except ValueError:
+        raise MetricsNotAllowedException()
 
 
 def get_environment_for_token(

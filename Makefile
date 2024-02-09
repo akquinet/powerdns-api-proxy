@@ -19,7 +19,7 @@ integration: ## run integration tests
 	python -m pytest -vvl --setup-show -vvl tests/integration/ --showlocals
 
 run: ## run project
-	python -m $(PROJECT_NAME)
+	uvicorn --host 0.0.0.0 --port 8000 --reload powerdns_api_proxy.proxy:app
 
 clean: ## clean cache and temp dirs
 	rm -rf ./.mypy_cache ./.pytest_cache

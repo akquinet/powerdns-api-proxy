@@ -53,6 +53,7 @@ class ProxyConfigEnvironment(BaseModel):
     global_read_only: bool = False
     global_search: bool = False
     _zones_lookup: dict[str, ProxyConfigZone] = {}
+    metrics_proxy: bool = False
 
     @field_validator('name')
     @classmethod
@@ -114,10 +115,48 @@ class ProxyConfigEnvironment(BaseModel):
 
 
 class ProxyConfig(BaseModel):
+    """
+    Configuration for the PowerDNS API Proxy.
+
+    Args:
+        pdns_api_url: The URL of the PowerDNS API.
+        pdns_api_token: The token for the PowerDNS API.
+        environments: A list of environments.
+        pdns_api_verify_ssl: Verify SSL certificate of the PowerDNS API.
+        metrics_enabled: Enable metrics.
+        metrics_require_auth: Require authentication for metrics.
+        api_docs_enabled: Enable API documentation.
+        index_enabled: Enable default web page
+        index_html: Custom html for the homepage
+
+    """
+
     pdns_api_url: str
     pdns_api_token: str
     environments: list[ProxyConfigEnvironment]
     pdns_api_verify_ssl: bool = True
+
+    metrics_enabled: bool = True
+    metrics_require_auth: bool = True
+
+    api_docs_enabled: bool = True
+
+    index_enabled: bool = True
+    index_html: str = '''
+    <html>
+        <head>
+            <title>PowerDNS API Proxy</title>
+        </head>
+        <body>
+            <center>
+            <h1>PowerDNS API Proxy</h1>
+            <p><a href="/docs">Swagger Docs</a></p>
+            <q>The Domain Name Server (DNS) is the Achilles heel of the Web.<br>
+            The important thing is that it's managed responsibly.</q>
+            </center>
+        </body>
+    </html>
+'''
 
     @field_validator('pdns_api_url')
     @classmethod
@@ -178,6 +217,12 @@ class SearchNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403
         self.detail = 'Search not allowed'
+
+
+class MetricsNotAllowedException(HTTPException):
+    def __init__(self):
+        self.status_code = 403
+        self.detail = 'Metrics not allowed'
 
 
 class RRSETRecord(TypedDict):
