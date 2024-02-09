@@ -75,6 +75,7 @@ if config.metrics_enabled:
     logger.info('Enabling metrics')
     instrumentator.add(metrics.default())
     instrumentator.add(http_requests_total_environment())
+    instrumentator.instrument(app)
 
     if config.metrics_require_auth:
         logger.info('Enabling metrics authentication')
