@@ -11,6 +11,14 @@ Within a zone, the token can be limited to one or more records.
 
 ## Usage
 
+### Container
+
+Containers are available under [Packages](https://github.com/akquinet/powerdns-api-proxy/pkgs/container/powerdns-api-proxy).
+
+```bash
+docker run -v config:/config -e PROXY_CONFIG_PATH=/config/config.yaml -e LOG_LEVEL=WARNING ghcr.io/akquinet/powerdns-api-proxy:latest
+```
+
 ### Authentication
 
 The token is expected in the header `X-API-Key` as with the PowerDNS API.
