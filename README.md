@@ -3,7 +3,6 @@
 ## Description
 
 The proxy can be used between a PowerDNS API and a client.
-It should have 1:1 compatibility with the PowerDNS API.
 
 There is the possibility to define multiple tokens. Each token is represented by an `environment`.
 A `environment` can get access to one or more zones.
