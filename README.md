@@ -30,10 +30,6 @@ If a resource is not allowed, then a `HTTP 403` comes back.
 
 An overview of the allowed resources of a token can be seen with a `GET` on `<url>/info/allowed`.
 
-### API Docs
-
-The Swagger documentation can be viewed at `<url>/docs`.
-
 ## Configuration
 
 The configuration takes place in YAML format.
@@ -245,7 +241,7 @@ Additionally http requests per environment are counted.
 
 The API documentation can be viewed at `<url>/docs`.
 
-They can be deactivated with the `api_docs_enabled` option.
+It can be deactivated with the `api_docs_enabled` option.
 
 ```yaml
 api_docs_enabled: false # default is true
