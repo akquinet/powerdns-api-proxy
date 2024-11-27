@@ -281,9 +281,9 @@ def test_check_rrset_not_allowed_single_entries():
         ],
     )
     for item in [
-        'entry1.test-zone.example.com.',
-        'entry2.entry1.test-zone.example.com',
-        'test-zone.example.com.',
+        'entry100.test-zone.example.com.',
+        'entry200.entry1.test-zone.example.com',
+        'test-record.example.com.',
     ]:
         rrset: RRSET = {
             'name': item,
@@ -293,7 +293,7 @@ def test_check_rrset_not_allowed_single_entries():
             'records': [],
             'comments': [],
         }
-        assert check_rrset_allowed(zone, rrset)
+        assert not check_rrset_allowed(zone, rrset)
 
 
 def test_check_rrsets_request_allowed_no_raise():
@@ -348,8 +348,8 @@ def test_check_rrsets_request_allowed_raise():
         )
     with pytest.raises(HTTPException) as err:
         ensure_rrsets_request_allowed(zone, request)
-        assert err.value.status_code == 403
-        assert err.value.detail == 'RRSET entry1.test-zone.example.com. not allowed'
+    assert err.value.status_code == 403
+    assert err.value.detail == 'RRSET entry1.test-zone.example.com. not allowed'
 
 
 def test_check_rrsets_request_not_allowed_read_only():
@@ -376,6 +376,119 @@ def test_check_rrsets_request_not_allowed_read_only():
         ensure_rrsets_request_allowed(zone, request)
     assert err.value.status_code == 403
     assert err.value.detail == 'RRSET update not allowed with read only token'
+
+
+def test_rrset_request_not_allowed_regex_empty():
+    zone = ProxyConfigZone(
+        name='test-zone.example.com.',
+        regex_records=[],
+    )
+    request: RRSETRequest = {'rrsets': []}
+    assert ensure_rrsets_request_allowed(zone, request)
+
+
+def test_rrset_request_allowed_all_regex():
+    zone = ProxyConfigZone(
+        name='test-zone.example.com.',
+        regex_records=[
+            '.*',
+        ],
+    )
+    request: RRSETRequest = {'rrsets': []}
+    for item in [
+        'entry1.test-zone.example.com.',
+        'entry2.entry1.test-zone.example.com',
+    ]:
+        request['rrsets'].append(
+            {
+                'name': item,
+                'type': 'TXT',
+                'changetype': 'REPLACE',
+                'ttl': 3600,
+                'records': [],
+                'comments': [],
+            }
+        )
+    assert ensure_rrsets_request_allowed(zone, request)
+
+
+def test_rrset_request_allowed_acme_regex():
+    zone = ProxyConfigZone(
+        name='test-zone.example.com.',
+        regex_records=[
+            '_acme-challenge.example.*.test-zone.example.com',
+        ],
+    )
+    request: RRSETRequest = {'rrsets': []}
+    for item in [
+        '_acme-challenge.example-entry.test-zone.example.com.',
+    ]:
+        request['rrsets'].append(
+            {
+                'name': item,
+                'type': 'TXT',
+                'changetype': 'REPLACE',
+                'ttl': 3600,
+                'records': [],
+                'comments': [],
+            }
+        )
+    assert ensure_rrsets_request_allowed(zone, request)
+
+
+def test_rrset_request_not_allowed_false_regex():
+    zone = ProxyConfigZone(
+        name='test-zone.example.com.',
+        regex_records=[
+            'example.*.test-zone.example.com',
+        ],
+    )
+    request: RRSETRequest = {'rrsets': []}
+    for item in [
+        'entry1.test-zone.example.com.',
+        'entry2.entry1.test-zone.example.com',
+    ]:
+        request['rrsets'].append(
+            {
+                'name': item,
+                'type': 'TXT',
+                'changetype': 'REPLACE',
+                'ttl': 3600,
+                'records': [],
+                'comments': [],
+            }
+        )
+    with pytest.raises(HTTPException) as err:
+        ensure_rrsets_request_allowed(zone, request)
+    assert err.value.status_code == 403
+    assert err.value.detail == 'RRSET entry1.test-zone.example.com. not allowed'
+
+
+def test_rrset_request_not_allowed_false_zone():
+    zone = ProxyConfigZone(
+        name='test-zone.example.com.',
+        regex_records=[
+            'example.*.test-zone2.example.com',
+        ],
+    )
+    request: RRSETRequest = {'rrsets': []}
+    for item in [
+        'example1.test-zone2.example.com.',
+    ]:
+        request['rrsets'].append(
+            {
+                'name': item,
+                'type': 'TXT',
+                'changetype': 'REPLACE',
+                'ttl': 3600,
+                'records': [],
+                'comments': [],
+            }
+        )
+    with pytest.raises(HTTPException) as err:
+        ensure_rrsets_request_allowed(zone, request)
+    assert err.value.status_code == 403
+    assert err.value.detail == 'RRSET example1.test-zone2.example.com. not allowed'
 
 
 def test_check_acme_record_allowed_all_records():
