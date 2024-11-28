@@ -104,6 +104,22 @@ environments:
            - "test.example.com"
 ```
 
+###### Regex
+
+Additionally to the `records` list a `regex_records` list can be defined.
+In this list regex can be to define, which records are allowed.
+
+```yaml
+...
+environments:
+    - name: "Test1"
+      ...
+      zones:
+       - name: "example.com"
+         regex_records:
+           - "_acme-challenge.service-.*.example.com"
+```
+
 ##### Services
 
 Under a `zone` `services` can be defined.

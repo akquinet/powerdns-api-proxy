@@ -19,7 +19,7 @@ from powerdns_api_proxy.models import (
     RRSETRequest,
     ZoneNotAllowedException,
 )
-from powerdns_api_proxy.utils import check_zones_equal
+from powerdns_api_proxy.utils import check_record_in_regex, check_zones_equal
 
 
 @lru_cache(maxsize=1)
@@ -147,8 +147,16 @@ def check_rrset_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
     if zone.all_records:
         return True
 
+    if not rrset['name'].rstrip('.').endswith(zone.name.rstrip('.')):
+        logger.debug('RRSET not allowed, because zone does not match')
+        return False
+
     for record in zone.records:
         if check_zones_equal(rrset['name'], record):
+            return True
+
+    for regex in zone.regex_records:
+        if check_record_in_regex(rrset['name'], regex):
             return True
 
     if check_acme_record_allowed(zone, rrset):

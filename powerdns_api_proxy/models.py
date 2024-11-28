@@ -19,7 +19,10 @@ class ProxyConfigServices(BaseModel):
 class ProxyConfigZone(BaseModel):
     '''
     `name` is the zone name.
+    `description` is a description of the zone.
     `regex` should be set to `True` if `name` is a regex.
+    `records` is a list of record names that are allowed.
+    `regex_records` is a list of record regexes that are allowed.
     `admin` enabled creating and deleting the zone.
     `subzones` sets the same permissions on all subzones.
     `all_records` will be set to `True` if no `records` are defined.
@@ -30,6 +33,7 @@ class ProxyConfigZone(BaseModel):
     regex: bool = False
     description: str = ''
     records: list[str] = []
+    regex_records: list[str] = []
     services: ProxyConfigServices = ProxyConfigServices(acme=False)
     admin: bool = False
     subzones: bool = False
@@ -38,7 +42,7 @@ class ProxyConfigZone(BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
-        if len(self.records) == 0:
+        if len(self.records) == 0 and len(self.regex_records) == 0:
             logger.debug(
                 f'Setting all_records to True for zone {self.name}, because no records are defined'
             )
