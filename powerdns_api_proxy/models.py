@@ -56,6 +56,7 @@ class ProxyConfigEnvironment(BaseModel):
     zones: list[ProxyConfigZone]
     global_read_only: bool = False
     global_search: bool = False
+    global_tsigkeys: bool = False
     _zones_lookup: dict[str, ProxyConfigZone] = {}
     metrics_proxy: bool = False
 
@@ -91,6 +92,7 @@ class ProxyConfigEnvironment(BaseModel):
             + self.token_sha512
             + str(self.global_read_only)
             + str(self.global_search)
+            + str(self.global_tsigkeys)
             + str(self.zones)
         )
 

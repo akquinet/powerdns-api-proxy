@@ -218,6 +218,21 @@ environments:
       global_search: true
 ```
 
+#### Global TSIGKeys
+
+Global TSIGKeys access can be defined under an `environment`.
+
+For this the `Environment` must have the option `global_tsigkeys: true`.
+
+This allows the token to read and modify all TSIGKeys in the PowerDNS.
+
+```yaml
+...
+environments:
+    - name: "Test1"
+      global_tsigkeys: true
+```
+
 ### Metrics of the proxy
 
 The proxy exposes metrics on the `/metrics` endpoint.

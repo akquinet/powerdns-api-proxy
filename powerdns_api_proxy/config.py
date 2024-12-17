@@ -182,6 +182,12 @@ def check_acme_record_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
     return False
 
 
+def check_pdns_tsigkeys_allowed(environment: ProxyConfigEnvironment) -> bool:
+    if environment.global_tsigkeys:
+        return True
+    return False
+
+
 def ensure_rrsets_request_allowed(zone: ProxyConfigZone, request: RRSETRequest) -> bool:
     '''Raises HTTPException if RRSET is not allowed'''
     if zone.read_only:
