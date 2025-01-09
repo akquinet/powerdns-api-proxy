@@ -23,4 +23,4 @@ RUN : \
 USER appuser
 
 
-CMD ["uvicorn", "--host", "0.0.0.0", "--port", "8000", "powerdns_api_proxy.proxy:app"]
+CMD ["uvicorn", "--host", "*", "--port", "8000", "powerdns_api_proxy.proxy:app"]
