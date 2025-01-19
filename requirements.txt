@@ -3,5 +3,5 @@ fastapi==0.115.6
 httpx
 prometheus-fastapi-instrumentator==7.0.0
 pyyaml==6.0.2
-sentry-sdk[fastapi]==2.17.0
+sentry-sdk[fastapi]==2.20.0
 uvicorn==0.32.0
