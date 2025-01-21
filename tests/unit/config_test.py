@@ -7,9 +7,9 @@ from fastapi import HTTPException
 from powerdns_api_proxy.config import (
     check_acme_record_allowed,
     check_pdns_search_allowed,
+    check_pdns_tsigkeys_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
-    check_pdns_tsigkeys_allowed,
     check_rrset_allowed,
     check_token_defined,
     ensure_rrsets_request_allowed,
