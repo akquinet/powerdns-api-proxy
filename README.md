@@ -169,7 +169,6 @@ environments:
           subzones: true
 ```
 
-
 ##### Regex
 
 Under a `zone` the option `regex: true` can be set.
@@ -191,7 +190,7 @@ environments:
 
 Global `read` permissions can be defined under an `environment`.
 
-For this the `Environment` must have the option `global_read: true`.
+For this the `Environment` must have the option `global_read_only: true`.
 
 This allows the token to read all zones in the PowerDNS.
 
