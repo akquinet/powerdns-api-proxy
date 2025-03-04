@@ -9,16 +9,16 @@ class PDNSConnector:
         self.token = token
         self.verify_ssl = verify_ssl
         self.headers = {
-            'Content-Type': 'application/json',
-            'X-API-Key': self.token,
+            "Content-Type": "application/json",
+            "X-API-Key": self.token,
         }
 
     async def request(
         self, method: str, path: str, params: dict = {}, payload: dict = {}
     ):
         logger.info(
-            f'Getting upstream PDNS API with method: {method}, path: {self.base_url + path}, '
-            f'params: {params}, payload: {payload}'
+            f"Getting upstream PDNS API with method: {method}, path: {self.base_url + path}, "
+            f"params: {params}, payload: {payload}"
         )
         async with aiohttp.ClientSession(
             base_url=self.base_url, headers=self.headers
@@ -37,16 +37,16 @@ class PDNSConnector:
                 return req
 
     async def get(self, path: str, params: dict = {}) -> aiohttp.ClientResponse:
-        return await self.request('GET', path, params=params)
+        return await self.request("GET", path, params=params)
 
     async def post(self, path: str, payload: dict = {}) -> aiohttp.ClientResponse:
-        return await self.request('POST', path, payload=payload)
+        return await self.request("POST", path, payload=payload)
 
     async def put(self, path: str, payload: dict = {}) -> aiohttp.ClientResponse:
-        return await self.request('PUT', path, payload=payload)
+        return await self.request("PUT", path, payload=payload)
 
     async def patch(self, path: str, payload: dict = {}) -> aiohttp.ClientResponse:
-        return await self.request('PATCH', path, payload=payload)
+        return await self.request("PATCH", path, payload=payload)
 
     async def delete(self, path: str, payload: dict = {}) -> aiohttp.ClientResponse:
-        return await self.request('DELETE', path, payload=payload)
+        return await self.request("DELETE", path, payload=payload)
