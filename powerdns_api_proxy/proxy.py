@@ -36,10 +36,10 @@ from powerdns_api_proxy.models import (
 from powerdns_api_proxy.pdns import PDNSConnector
 from powerdns_api_proxy.utils import response_json_or_text
 
-if os.getenv('SENTRY_DSN'):
+if os.getenv("SENTRY_DSN"):
     sentry_sdk.init(
-        traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE') or 0.1),
-        environment=os.getenv('ENVIRONMENT') or 'DEV',
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE") or 0.1),
+        environment=os.getenv("ENVIRONMENT") or "DEV",
         integrations=[FastApiIntegration(), AioHttpIntegration()],
     )
 
@@ -56,10 +56,10 @@ async def _startup(app: FastAPI):
     yield
 
 
-app = FastAPI(title='PowerDNS API Proxy', version='0.1.0', lifespan=_startup)
+app = FastAPI(title="PowerDNS API Proxy", version="0.1.0", lifespan=_startup)
 
 if not config.api_docs_enabled:
-    logger.info('Disabling API docs')
+    logger.info("Disabling API docs")
     app = FastAPI(
         title=app.title,
         version=app.version,
@@ -73,47 +73,47 @@ if config.metrics_enabled:
     instrumentator = Instrumentator(
         should_group_status_codes=False,
     )
-    logger.info('Enabling metrics')
+    logger.info("Enabling metrics")
     instrumentator.add(metrics.default())
     instrumentator.add(http_requests_total_environment())
     instrumentator.instrument(app)
 
     if config.metrics_require_auth:
-        logger.info('Enabling metrics authentication')
+        logger.info("Enabling metrics authentication")
         instrumentator.expose(
             app, dependencies=[Depends(dependency_metrics_proxy_enabled)]
         )
     else:
         instrumentator.expose(app)
 else:
-    logger.info('Metrics are disabled')
+    logger.info("Metrics are disabled")
 
 
 # Patching HTTPException to be compatible with PowerDNS API errors
 # https://doc.powerdns.com/authoritative/http-api/index.html#errors
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request, exc):
-    return JSONResponse({'error': exc.detail}, status_code=exc.status_code)
+    return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
 
 
 router_proxy = APIRouter(
-    prefix='/info',
-    tags=['Information'],
+    prefix="/info",
+    tags=["Information"],
     dependencies=[Depends(dependency_check_token_defined)],
 )
 router_health = APIRouter(
-    prefix='/health',
-    tags=['Information'],
+    prefix="/health",
+    tags=["Information"],
 )
 router_pdns = APIRouter(
-    prefix='/api/v1',
-    tags=['PowerDNS Ressources'],
+    prefix="/api/v1",
+    tags=["PowerDNS Ressources"],
     dependencies=[Depends(dependency_check_token_defined)],
 )
 
 
-@app.head('/', include_in_schema=False)
-@app.get('/', response_class=HTMLResponse, include_in_schema=False)
+@app.head("/", include_in_schema=False)
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def hello():
     if config.index_enabled:
         return config.index_html
@@ -121,40 +121,40 @@ async def hello():
         return HTMLResponse(status_code=404)
 
 
-@router_health.get('/pdns', status_code=HTTPStatus.OK)
+@router_health.get("/pdns", status_code=HTTPStatus.OK)
 async def health_upstream_pdns_api(response: Response):
-    '''Checks connection to Upstream PowerDNS API.'''
-    logger.info('Checking upstream pdns api health')
-    req = await pdns.get('/api/v1/servers')
+    """Checks connection to Upstream PowerDNS API."""
+    logger.info("Checking upstream pdns api health")
+    req = await pdns.get("/api/v1/servers")
     response.status_code = req.status
-    data = {'details': 'Upstream PowerDNS API seems to work :)'}
+    data = {"details": "Upstream PowerDNS API seems to work :)"}
     if req.status != 200:
-        data = {'details': 'Something is wrong :(. Please help me!'}
+        data = {"details": "Something is wrong :(. Please help me!"}
         response.status_code = 500
     return data
 
 
 @router_proxy.get(
-    '/allowed',
+    "/allowed",
     response_model=ResponseAllowed,
 )
 async def get_allowed_ressources(X_API_Key: str = Header()):
-    '''Retrieve allowed requests for the given token.'''
-    logger.info('Checking allowed ressources for given api key')
+    """Retrieve allowed requests for the given token."""
+    logger.info("Checking allowed ressources for given api key")
     environment = get_environment_for_token(config, X_API_Key)
     return ResponseAllowed(zones=environment.zones)
 
 
 @router_proxy.get(
-    '/zone-allowed',
+    "/zone-allowed",
     response_model=ResponseZoneAllowed,
 )
 async def get_zone_allowed(zone: str, X_API_Key: str = Header()):
-    '''
+    """
     Check if the given zone is allowed for the given token.
     Also returns the zone config that allows the zone.
-    '''
-    logger.debug('Checking if zone is allowed for given api key')
+    """
+    logger.debug("Checking if zone is allowed for given api key")
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_allowed(environment, zone):
         return ResponseZoneAllowed(zone=zone, allowed=False)
@@ -163,74 +163,74 @@ async def get_zone_allowed(zone: str, X_API_Key: str = Header()):
     return ResponseZoneAllowed(zone=zone, allowed=True, config=zone_config)
 
 
-@app.get('/api', dependencies=[Depends(dependency_check_token_defined)])
+@app.get("/api", dependencies=[Depends(dependency_check_token_defined)])
 async def api_root():
-    '''Returns the version and a info that this is a proxy.'''
+    """Returns the version and a info that this is a proxy."""
     return [
         {
-            'url': '/api/v1',
-            'version': 1,
-            'compatibility': 'PowerDNS API Proxy, PowerDNS API v1',
+            "url": "/api/v1",
+            "version": 1,
+            "compatibility": "PowerDNS API Proxy, PowerDNS API v1",
         }
     ]
 
 
-@router_pdns.get('/servers')
+@router_pdns.get("/servers")
 async def get_servers(response: Response):
-    '''
+    """
     Retrieve a list of servers which can be used.
 
     <https://doc.powerdns.com/authoritative/http-api/server.html>
-    '''
-    req = await pdns.get('/api/v1/servers')
+    """
+    req = await pdns.get("/api/v1/servers")
     data = await req.json()
     response.status_code = req.status
     return data
 
 
-@router_pdns.get('/servers/{server_id}')
+@router_pdns.get("/servers/{server_id}")
 async def get_server(response: Response, server_id: str):
-    '''
+    """
     Retrieve a specific server.
 
     <https://doc.powerdns.com/authoritative/http-api/server.html>
-    '''
-    resp = await pdns.get(f'/api/v1/servers/{server_id}')
+    """
+    resp = await pdns.get(f"/api/v1/servers/{server_id}")
     data = await response_json_or_text(resp)
     response.status_code = resp.status
     return data
 
 
 @router_pdns.get(
-    '/servers/{server_id}/configuration',
+    "/servers/{server_id}/configuration",
 )
 async def get_configuration(server_id: str):
-    '''
+    """
     Retrieve a list of configuration items for the server.
     Currently returns empty, as we don't want to expose the global backend configuration.
-    '''
+    """
     _ = server_id
     raise RessourceNotAllowedException()
 
 
 @router_pdns.get(
-    '/servers/{server_id}/statistics',
+    "/servers/{server_id}/statistics",
 )
 async def get_statistics(
     server_id: str,
 ):
-    '''
+    """
     Retrieve a list of statistics about the server.
     Currently returns empty, as we don't want to expose the global backend statistics.
 
     <https://doc.powerdns.com/authoritative/http-api/statistics.html#get--servers-server_id-statistics>
-    '''
+    """
     _ = server_id
     raise RessourceNotAllowedException()
 
 
 @router_pdns.get(
-    '/servers/{server_id}/zones',
+    "/servers/{server_id}/zones",
 )
 async def get_zones(
     request: Request,
@@ -238,14 +238,14 @@ async def get_zones(
     server_id: str,
     X_API_Key: str = Header(),
 ):
-    '''
+    """
     Retrieve a list of zones that exist and belong to this account.
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#get--servers-server_id-zones>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     resp = await pdns.get(
-        f'/api/v1/servers/{server_id}/zones', dict(request.query_params)
+        f"/api/v1/servers/{server_id}/zones", dict(request.query_params)
     )
     response.status_code = resp.status
     zones = await resp.json()
@@ -253,31 +253,31 @@ async def get_zones(
 
 
 @router_pdns.post(
-    '/servers/{server_id}/zones',
+    "/servers/{server_id}/zones",
 )
 async def create_zone(
     request: Request, response: Response, server_id: str, X_API_Key: str = Header()
 ):
-    '''
+    """
     Create a new zone.
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#post--servers-server_id-zones>
-    '''
+    """
     payload = await request.json()
     logger.info(f'Zone creation request data: "{payload}"')
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_allowed(environment, payload['name']):
+    if not check_pdns_zone_allowed(environment, payload["name"]):
         raise ZoneNotAllowedException()
-    if not check_pdns_zone_admin(environment, payload['name']):
+    if not check_pdns_zone_admin(environment, payload["name"]):
         raise ZoneAdminNotAllowedException()
-    resp = await pdns.post(f'/api/v1/servers/{server_id}/zones', payload)
+    resp = await pdns.post(f"/api/v1/servers/{server_id}/zones", payload)
     response.status_code = resp.status
     data = await response_json_or_text(resp)
     return data
 
 
 @router_pdns.get(
-    '/servers/{server_id}/zones/{zone_id}',
+    "/servers/{server_id}/zones/{zone_id}",
 )
 async def get_zone_metadata(
     request: Request,
@@ -286,17 +286,17 @@ async def get_zone_metadata(
     zone_id: str,
     X_API_Key: str = Header(),
 ):
-    '''
+    """
     Retrieve zone metadata.
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#get--servers-server_id-zones-zone_id>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
-        logger.info(f'Zone {zone_id} not allowed for environment {environment.name}')
+        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     resp = await pdns.get(
-        f'/api/v1/servers/{server_id}/zones/{zone_id}',
+        f"/api/v1/servers/{server_id}/zones/{zone_id}",
         params=dict(request.query_params),
     )
     response.status_code = resp.status
@@ -304,7 +304,7 @@ async def get_zone_metadata(
     return data
 
 
-@router_pdns.put('/servers/{server_id}/zones/{zone_id}')
+@router_pdns.put("/servers/{server_id}/zones/{zone_id}")
 async def update_zone_metadata(
     request: Request,
     response: Response,
@@ -312,18 +312,18 @@ async def update_zone_metadata(
     zone_id: str,
     X_API_Key: str = Header(),
 ):
-    '''
+    """
     Update zone metadata.
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
         raise ZoneNotAllowedException()
     if not check_pdns_zone_admin(environment, zone_id):
         raise ZoneAdminNotAllowedException()
     resp = await pdns.put(
-        f'/api/v1/servers/{server_id}/zones/{zone_id}',
+        f"/api/v1/servers/{server_id}/zones/{zone_id}",
         payload=await request.json(),
     )
     response.status_code = resp.status
@@ -333,7 +333,7 @@ async def update_zone_metadata(
     return Response(status_code=HTTPStatus.NO_CONTENT)
 
 
-@router_pdns.patch('/servers/{server_id}/zones/{zone_id}')
+@router_pdns.patch("/servers/{server_id}/zones/{zone_id}")
 async def update_zone_rrset(
     request: Request,
     response: Response,
@@ -341,20 +341,20 @@ async def update_zone_rrset(
     zone_id: str,
     X_API_Key: str = Header(),
 ):
-    '''
+    """
     Update RRSets of a zone.
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#patch--servers-server_id-zones-zone_id>
-    '''
-    logger.debug(f'Update RRSet request for {zone_id}')
+    """
+    logger.debug(f"Update RRSet request for {zone_id}")
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
-        logger.info(f'Zone {zone_id} not allowed for environment {environment.name}')
+        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     zone = environment.get_zone_if_allowed(zone_id)
     ensure_rrsets_request_allowed(zone, await request.json())
     resp = await pdns.patch(
-        f'/api/v1/servers/{server_id}/zones/{zone_id}',
+        f"/api/v1/servers/{server_id}/zones/{zone_id}",
         payload=await request.json(),
     )
     response.status_code = resp.status
@@ -364,19 +364,19 @@ async def update_zone_rrset(
     return Response(status_code=HTTPStatus.NO_CONTENT)
 
 
-@router_pdns.delete('/servers/{server_id}/zones/{zone_id}')
+@router_pdns.delete("/servers/{server_id}/zones/{zone_id}")
 async def delete_zone(
     response: Response, server_id: str, zone_id: str, X_API_Key: str = Header()
 ):
-    '''
+    """
     Delete a zone immediately.
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#delete--servers-server_id-zones-zone_id>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_admin(environment, zone_id):
         raise ZoneNotAllowedException()
-    resp = await pdns.delete(f'/api/v1/servers/{server_id}/zones/{zone_id}')
+    resp = await pdns.delete(f"/api/v1/servers/{server_id}/zones/{zone_id}")
     response.status_code = resp.status
     if response.status_code != HTTPStatus.NO_CONTENT:
         data = await response_json_or_text(resp)
@@ -384,35 +384,35 @@ async def delete_zone(
     return Response(status_code=HTTPStatus.NO_CONTENT)
 
 
-@router_pdns.put('/servers/{server_id}/zones/{zone_id}/notify')
+@router_pdns.put("/servers/{server_id}/zones/{zone_id}/notify")
 async def zone_notification(
     response: Response, server_id: str, zone_id: str, X_API_Key: str = Header()
 ):
-    '''
+    """
     Queue a zone for notification to replicas.
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id-notify>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
-        logger.info(f'Zone {zone_id} not allowed for environment {environment.name}')
+        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
-    resp = await pdns.put(f'/api/v1/servers/{server_id}/zones/{zone_id}/notify')
+    resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/notify")
     response.status_code = resp.status
     data = await response_json_or_text(resp)
     return data
 
 
-@router_pdns.get('/servers/{server_id}/search-data')
+@router_pdns.get("/servers/{server_id}/search-data")
 async def search_data(
     response: Response,
     server_id: str,
     q: str,
     max: int | None = None,
-    object_type: Literal['all', 'zone', 'record', 'comment'] = 'all',
+    object_type: Literal["all", "zone", "record", "comment"] = "all",
     X_API_Key: str = Header(),
 ):
-    '''
+    """
     Search the data inside PowerDNS
 
     Search the data inside PowerDNS for search_term
@@ -423,87 +423,87 @@ async def search_data(
     and the ? character can be used as a wildcard for a single character.
 
     <https://doc.powerdns.com/authoritative/http-api/search.html>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_search_allowed(environment, q, object_type):
         logger.info(
             f'Search "{q}" with object_type "{object_type}" is not allowed '
-            f'for environment {environment.name}'
+            f"for environment {environment.name}"
         )
         raise SearchNotAllowedException()
 
-    search_params: dict[str, str | int] = {'q': q, 'object_type': object_type}
+    search_params: dict[str, str | int] = {"q": q, "object_type": object_type}
     if max is not None:
-        search_params['max'] = max
+        search_params["max"] = max
     resp = await pdns.get(
-        f'/api/v1/servers/{server_id}/search-data', params=search_params
+        f"/api/v1/servers/{server_id}/search-data", params=search_params
     )
     response.status_code = resp.status
     data = await response_json_or_text(resp)
     return data
 
 
-@router_pdns.get('/servers/{server_id}/tsigkeys')
+@router_pdns.get("/servers/{server_id}/tsigkeys")
 async def list_tsigkeys(response: Response, server_id: str, X_API_Key: str = Header()):
-    '''
+    """
     Get all TSIGKeys on the server, except the actual key.
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#get--servers-server_id-tsigkeys>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
-        logger.info(f'TSIGKeys not allowed for environment {environment.name}')
+        logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
-    resp = await pdns.get(f'/api/v1/servers/{server_id}/tsigkeys')
+    resp = await pdns.get(f"/api/v1/servers/{server_id}/tsigkeys")
     response.status_code = resp.status
     data = await response_json_or_text(resp)
     return data
 
 
-@router_pdns.get('/servers/{server_id}/tsigkeys/{tsigkey_id}')
+@router_pdns.get("/servers/{server_id}/tsigkeys/{tsigkey_id}")
 async def fetch_tsigkey(
     response: Response, server_id: str, tsigkey_id: str, X_API_Key: str = Header()
 ):
-    '''
+    """
     Get a specific TSIGKeys on the server, including the actual key.
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#get--servers-server_id-tsigkeys-tsigkey_id>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
-        logger.info(f'TSIGKeys not allowed for environment {environment.name}')
+        logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
-    resp = await pdns.get(f'/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}')
+    resp = await pdns.get(f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}")
     response.status_code = resp.status
     data = await response_json_or_text(resp)
     return data
 
 
-@router_pdns.post('/servers/{server_id}/tsigkeys')
+@router_pdns.post("/servers/{server_id}/tsigkeys")
 async def create_tsigkey(
     request: Request, response: Response, server_id: str, X_API_Key: str = Header()
 ):
-    '''
+    """
     Add a TSIG key.
 
     This methods add a new TSIGKey. The actual key can be generated by the server or
     be provided by the client.
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#post--servers-server_id-tsigkeys>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
-        logger.info(f'TSIGKeys not allowed for environment {environment.name}')
+        logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     resp = await pdns.post(
-        f'/api/v1/servers/{server_id}/tsigkeys', payload=await request.json()
+        f"/api/v1/servers/{server_id}/tsigkeys", payload=await request.json()
     )
     response.status_code = resp.status
     data = await response_json_or_text(resp)
     return data
 
 
-@router_pdns.put('/servers/{server_id}/tsigkeys/{tsigkey_id}')
+@router_pdns.put("/servers/{server_id}/tsigkeys/{tsigkey_id}")
 async def update_tsigkey(
     request: Request,
     response: Response,
@@ -511,7 +511,7 @@ async def update_tsigkey(
     tsigkey_id: str,
     X_API_Key: str = Header(),
 ):
-    '''
+    """
     The TSIGKey at tsigkey_id can be changed in multiple ways:
 
     * Changing the Name, this will remove the key with tsigkey_id after adding.
@@ -521,13 +521,13 @@ async def update_tsigkey(
     Only the relevant fields have to be provided in the request body.
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#put--servers-server_id-tsigkeys-tsigkey_id>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
-        logger.info(f'TSIGKeys not allowed for environment {environment.name}')
+        logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     resp = await pdns.put(
-        f'/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}',
+        f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}",
         payload=await request.json(),
     )
     response.status_code = resp.status
@@ -535,20 +535,20 @@ async def update_tsigkey(
     return data
 
 
-@router_pdns.delete('/servers/{server_id}/tsigkeys/{tsigkey_id}')
+@router_pdns.delete("/servers/{server_id}/tsigkeys/{tsigkey_id}")
 async def delete_tsigkey(
     response: Response, server_id: str, tsigkey_id: str, X_API_Key: str = Header()
 ):
-    '''
+    """
     Delete the TSIGKey with tsigkey_id.
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#delete--servers-server_id-tsigkeys-tsigkey_id>
-    '''
+    """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
-        logger.info(f'TSIGKeys not allowed for environment {environment.name}')
+        logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
-    resp = await pdns.delete(f'/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}')
+    resp = await pdns.delete(f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}")
     response.status_code = resp.status
     data = await response_json_or_text(resp)
     return data

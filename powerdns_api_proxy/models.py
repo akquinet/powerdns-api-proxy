@@ -17,7 +17,7 @@ class ProxyConfigServices(BaseModel):
 
 
 class ProxyConfigZone(BaseModel):
-    '''
+    """
     `name` is the zone name.
     `description` is a description of the zone.
     `regex` should be set to `True` if `name` is a regex.
@@ -27,11 +27,11 @@ class ProxyConfigZone(BaseModel):
     `subzones` sets the same permissions on all subzones.
     `all_records` will be set to `True` if no `records` are defined.
     `read_only` will be set to `True` if `global_read_only` is `True`.
-    '''
+    """
 
     name: str
     regex: bool = False
-    description: str = ''
+    description: str = ""
     records: list[str] = []
     regex_records: list[str] = []
     services: ProxyConfigServices = ProxyConfigServices(acme=False)
@@ -44,7 +44,7 @@ class ProxyConfigZone(BaseModel):
         super().__init__(**data)
         if len(self.records) == 0 and len(self.regex_records) == 0:
             logger.debug(
-                f'Setting all_records to True for zone {self.name}, because no records are defined'
+                f"Setting all_records to True for zone {self.name}, because no records are defined"
             )
             self.all_records = True
             self.services.acme = True
@@ -60,25 +60,25 @@ class ProxyConfigEnvironment(BaseModel):
     _zones_lookup: dict[str, ProxyConfigZone] = {}
     metrics_proxy: bool = False
 
-    @field_validator('name')
+    @field_validator("name")
     @classmethod
     def name_defined(cls, v):
         if len(v) == 0:
-            raise ValueError('name must a non-empty string')
+            raise ValueError("name must a non-empty string")
         return v
 
-    @field_validator('token_sha512')
+    @field_validator("token_sha512")
     @classmethod
     def validate_token(cls, token_sha512):
         if len(token_sha512) != 128:
-            raise ValueError('A SHA512 hash must be 128 digits long')
+            raise ValueError("A SHA512 hash must be 128 digits long")
         return token_sha512
 
     def __init__(self, **data):
         super().__init__(**data)
         if self.global_read_only:
             logger.debug(
-                'Setting all subzones to read_only, because global_read_only is true'
+                "Setting all subzones to read_only, because global_read_only is true"
             )
             for zone in self.zones:
                 zone.read_only = True
@@ -98,10 +98,10 @@ class ProxyConfigEnvironment(BaseModel):
 
     @lru_cache(maxsize=10000)
     def get_zone_if_allowed(self, zone: str) -> ProxyConfigZone:
-        '''
+        """
         Returns the zone config for the given zone name
         Raises ZoneNotAllowedException if the zone is not allowed
-        '''
+        """
         if zone in self._zones_lookup:
             return self._zones_lookup[zone]
 
@@ -148,7 +148,7 @@ class ProxyConfig(BaseModel):
     api_docs_enabled: bool = True
 
     index_enabled: bool = True
-    index_html: str = '''
+    index_html: str = """
     <html>
         <head>
             <title>PowerDNS API Proxy</title>
@@ -162,20 +162,20 @@ class ProxyConfig(BaseModel):
             </center>
         </body>
     </html>
-'''
+"""
 
-    @field_validator('pdns_api_url')
+    @field_validator("pdns_api_url")
     @classmethod
     def api_url_defined(cls, v):
         if len(v) == 0:
-            raise ValueError('pdns_api_url must a non-empty string')
+            raise ValueError("pdns_api_url must a non-empty string")
         return v
 
-    @field_validator('pdns_api_token')
+    @field_validator("pdns_api_token")
     @classmethod
     def api_token_defined(cls, v):
         if len(v) == 0:
-            raise ValueError('pdns_api_token must a non-empty string')
+            raise ValueError("pdns_api_token must a non-empty string")
         return v
 
 
@@ -192,43 +192,43 @@ class ResponseZoneAllowed(BaseModel):
 class ZoneNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403
-        self.detail = 'Zone not allowed'
+        self.detail = "Zone not allowed"
 
 
 class ZoneAdminNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403
-        self.detail = 'Not Zone admin'
+        self.detail = "Not Zone admin"
 
 
 class RecordNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403
-        self.detail = 'Record not allowed'
+        self.detail = "Record not allowed"
 
 
 class RessourceNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403
-        self.detail = 'Ressource not allowed'
+        self.detail = "Ressource not allowed"
 
 
 class NotAuthorizedException(HTTPException):
     def __init__(self):
         self.status_code = 401
-        self.detail = 'Unauthorized'
+        self.detail = "Unauthorized"
 
 
 class SearchNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403
-        self.detail = 'Search not allowed'
+        self.detail = "Search not allowed"
 
 
 class MetricsNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403
-        self.detail = 'Metrics not allowed'
+        self.detail = "Metrics not allowed"
 
 
 class RRSETRecord(TypedDict):
