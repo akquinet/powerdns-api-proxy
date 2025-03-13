@@ -21,7 +21,9 @@ class PDNSConnector:
             f"params: {params}, payload: {payload}"
         )
         async with aiohttp.ClientSession(
-            base_url=self.base_url, headers=self.headers
+            base_url=self.base_url,
+            headers=self.headers,
+            connector_owner=False,
         ) as session:
             async with session.request(
                 method,
