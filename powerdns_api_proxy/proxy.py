@@ -30,6 +30,8 @@ from powerdns_api_proxy.models import (
     ResponseZoneAllowed,
     RessourceNotAllowedException,
     SearchNotAllowedException,
+    UnhandledException,
+    UpstreamException,
     ZoneAdminNotAllowedException,
     ZoneNotAllowedException,
 )
@@ -185,7 +187,13 @@ async def get_servers(response: Response):
     req = await pdns.get("/api/v1/servers")
     data = await req.json()
     response.status_code = req.status
-    return data
+
+    if response.status_code == HTTPStatus.OK:
+      return data
+    elif 'error' in data:
+      raise UpstreamException()
+    else:
+      raise UnhandledException()
 
 
 @router_pdns.get("/servers/{server_id}")
@@ -198,7 +206,13 @@ async def get_server(response: Response, server_id: str):
     resp = await pdns.get(f"/api/v1/servers/{server_id}")
     data = await response_json_or_text(resp)
     response.status_code = resp.status
-    return data
+
+    if response.status_code == HTTPStatus.OK:
+      return data
+    elif 'error' in data:
+      raise UpstreamException()
+    else:
+      raise UnhandledException()
 
 
 @router_pdns.get(
@@ -249,7 +263,13 @@ async def get_zones(
     )
     response.status_code = resp.status
     zones = await resp.json()
-    return get_only_pdns_zones_allowed(environment, zones)
+
+    if response.status_code == HTTPStatus.OK:
+      return get_only_pdns_zones_allowed(environment, zones)
+    elif 'error' in zones:
+      raise UpstreamException()
+    else:
+      raise UnhandledException()
 
 
 @router_pdns.post(
@@ -301,7 +321,13 @@ async def get_zone_metadata(
     )
     response.status_code = resp.status
     data = await response_json_or_text(resp)
-    return data
+
+    if response.status_code == HTTPStatus.OK:
+      return data
+    elif 'error' in data:
+      raise UpstreamException()
+    else:
+      raise UnhandledException()
 
 
 @router_pdns.put("/servers/{server_id}/zones/{zone_id}")
@@ -440,7 +466,13 @@ async def search_data(
     )
     response.status_code = resp.status
     data = await response_json_or_text(resp)
-    return data
+
+    if response.status_code == HTTPStatus.OK:
+      return data
+    elif 'error' in data:
+      raise UpstreamException()
+    else:
+      raise UnhandledException()
 
 
 @router_pdns.get("/servers/{server_id}/tsigkeys")
@@ -457,7 +489,13 @@ async def list_tsigkeys(response: Response, server_id: str, X_API_Key: str = Hea
     resp = await pdns.get(f"/api/v1/servers/{server_id}/tsigkeys")
     response.status_code = resp.status
     data = await response_json_or_text(resp)
-    return data
+
+    if response.status_code == HTTPStatus.OK:
+      return data
+    elif 'error' in data:
+      raise UpstreamException()
+    else:
+      raise UnhandledException()
 
 
 @router_pdns.get("/servers/{server_id}/tsigkeys/{tsigkey_id}")
@@ -476,7 +514,14 @@ async def fetch_tsigkey(
     resp = await pdns.get(f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}")
     response.status_code = resp.status
     data = await response_json_or_text(resp)
-    return data
+
+    if response.status_code == HTTPStatus.OK:
+      return data
+    elif 'error' in data:
+      raise UpstreamException()
+    else:
+      raise UnhandledException()
+
 
 
 @router_pdns.post("/servers/{server_id}/tsigkeys")
