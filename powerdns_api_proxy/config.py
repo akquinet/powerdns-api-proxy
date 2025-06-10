@@ -33,18 +33,19 @@ def load_config(path: Optional[Path] = None) -> ProxyConfig:
     with open(path) as f:
         data = safe_load(f)
 
-    config = ProxyConfig.model_validate(data)
-    return config
+    return ProxyConfig(**data)
 
 
 def token_defined(config: ProxyConfig, token: str) -> bool:
     sha512 = hashlib.sha512()
     sha512.update(token.encode())
     token_digest = sha512.digest().hex()
-    for env in config.environments:
-        if token_digest == env.token_sha512:
-            logger.info(f'Authenticated environment "{env.name}"')
-            return True
+
+    if token_digest in config.token_env_map:
+        logger.info(
+            f'Authenticated environment "{config.token_env_map[token_digest].name}"'
+        )
+        return True
     return False
 
 
@@ -92,9 +93,10 @@ def get_environment_for_token(
     sha512 = hashlib.sha512()
     sha512.update(token.encode())
     token_digest = sha512.digest().hex()
-    for env in config.environments:
-        if token_digest == env.token_sha512:
-            return env
+
+    if token_digest in config.token_env_map:
+        return config.token_env_map[token_digest]
+
     raise ValueError("Could not find a environment for the given token")
 
 
