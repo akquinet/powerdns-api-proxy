@@ -163,6 +163,8 @@ class ProxyConfig(BaseModel):
         </body>
     </html>
 """
+    # Dictionary for fast token lookups
+    token_env_map: dict[str, ProxyConfigEnvironment] = {}
 
     @field_validator("pdns_api_url")
     @classmethod
@@ -177,6 +179,13 @@ class ProxyConfig(BaseModel):
         if len(v) == 0:
             raise ValueError("pdns_api_token must a non-empty string")
         return v
+
+    def __init__(self, **data):
+        super().__init__(**data)
+
+        # Automatically populate token_env_map during initialization
+        for env in self.environments:
+            self.token_env_map[env.token_sha512] = env
 
 
 class ResponseAllowed(BaseModel):
