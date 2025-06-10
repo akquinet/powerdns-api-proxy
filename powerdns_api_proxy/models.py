@@ -240,6 +240,18 @@ class MetricsNotAllowedException(HTTPException):
         self.detail = "Metrics not allowed"
 
 
+class UpstreamException(HTTPException):
+    def __init__(self):
+        self.status_code = 500
+        self.detail = "Error while connecting to PowerDNS backend"
+
+
+class UnhandledException(HTTPException):
+    def __init__(self):
+        self.status_code = 500
+        self.detail = "Unhandled error"
+
+
 class RRSETRecord(TypedDict):
     content: str
     disabled: bool
