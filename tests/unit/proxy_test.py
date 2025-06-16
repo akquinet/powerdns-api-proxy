@@ -6,11 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from powerdns_api_proxy.models import (
-    NotAuthorizedException,
     ProxyConfig,
     ProxyConfigEnvironment,
     ProxyConfigZone,
 )
+
+from powerdns_api_proxy.exceptions import NotAuthorizedException
 from powerdns_api_proxy.proxy import app
 
 client = TestClient(app)
