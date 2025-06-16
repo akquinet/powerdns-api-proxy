@@ -1,7 +1,6 @@
 from functools import lru_cache
 from typing import TypedDict
 
-from fastapi import HTTPException
 from pydantic import BaseModel, field_validator
 
 from powerdns_api_proxy.logging import logger
@@ -10,6 +9,7 @@ from powerdns_api_proxy.utils import (
     check_zone_in_regex,
     check_zones_equal,
 )
+from powerdns_api_proxy.exceptions import ZoneNotAllowedException
 
 
 class ProxyConfigServices(BaseModel):
@@ -196,60 +196,6 @@ class ResponseZoneAllowed(BaseModel):
     zone: str
     allowed: bool
     config: ProxyConfigZone | None = None
-
-
-class ZoneNotAllowedException(HTTPException):
-    def __init__(self):
-        self.status_code = 403
-        self.detail = "Zone not allowed"
-
-
-class ZoneAdminNotAllowedException(HTTPException):
-    def __init__(self):
-        self.status_code = 403
-        self.detail = "Not Zone admin"
-
-
-class RecordNotAllowedException(HTTPException):
-    def __init__(self):
-        self.status_code = 403
-        self.detail = "Record not allowed"
-
-
-class RessourceNotAllowedException(HTTPException):
-    def __init__(self):
-        self.status_code = 403
-        self.detail = "Ressource not allowed"
-
-
-class NotAuthorizedException(HTTPException):
-    def __init__(self):
-        self.status_code = 401
-        self.detail = "Unauthorized"
-
-
-class SearchNotAllowedException(HTTPException):
-    def __init__(self):
-        self.status_code = 403
-        self.detail = "Search not allowed"
-
-
-class MetricsNotAllowedException(HTTPException):
-    def __init__(self):
-        self.status_code = 403
-        self.detail = "Metrics not allowed"
-
-
-class UpstreamException(HTTPException):
-    def __init__(self):
-        self.status_code = 500
-        self.detail = "Error while connecting to PowerDNS backend"
-
-
-class UnhandledException(HTTPException):
-    def __init__(self):
-        self.status_code = 500
-        self.detail = "Unhandled error"
 
 
 class RRSETRecord(TypedDict):

@@ -8,16 +8,18 @@ from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from yaml import safe_load
 
+from powerdns_api_proxy.exceptions import (
+    MetricsNotAllowedException,
+    NotAuthorizedException,
+    ZoneNotAllowedException,
+)
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.models import (
     RRSET,
-    MetricsNotAllowedException,
-    NotAuthorizedException,
     ProxyConfig,
     ProxyConfigEnvironment,
     ProxyConfigZone,
     RRSETRequest,
-    ZoneNotAllowedException,
 )
 from powerdns_api_proxy.utils import check_record_in_regex, check_zones_equal
 
@@ -123,6 +125,8 @@ def check_pdns_zone_allowed(environment: ProxyConfigEnvironment, zone: str) -> b
         return True
     except ZoneNotAllowedException:
         return False
+    except Exception:
+        return False
 
 
 def check_pdns_zone_admin(environment: ProxyConfigEnvironment, zone: str) -> bool:
@@ -130,6 +134,8 @@ def check_pdns_zone_admin(environment: ProxyConfigEnvironment, zone: str) -> boo
         env_zone = environment.get_zone_if_allowed(zone)
         return env_zone.admin
     except ZoneNotAllowedException:
+        pass
+    except Exception:
         pass
     return False
 

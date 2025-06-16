@@ -19,12 +19,14 @@ from powerdns_api_proxy.config import (
 )
 from powerdns_api_proxy.models import (
     RRSET,
-    NotAuthorizedException,
     ProxyConfig,
     ProxyConfigEnvironment,
     ProxyConfigServices,
     ProxyConfigZone,
     RRSETRequest,
+)
+from powerdns_api_proxy.exceptions import (
+    NotAuthorizedException,
     ZoneNotAllowedException,
 )
 

@@ -23,20 +23,20 @@ from powerdns_api_proxy.config import (
     get_only_pdns_zones_allowed,
     load_config,
 )
+from powerdns_api_proxy.exceptions import (
+    RessourceNotAllowedException,
+    SearchNotAllowedException,
+    ZoneAdminNotAllowedException,
+    ZoneNotAllowedException,
+    UpstreamException,
+)
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.metrics import http_requests_total_environment
 from powerdns_api_proxy.models import (
     ResponseAllowed,
     ResponseZoneAllowed,
-    RessourceNotAllowedException,
-    SearchNotAllowedException,
-    UnhandledException,
-    UpstreamException,
-    ZoneAdminNotAllowedException,
-    ZoneNotAllowedException,
 )
-from powerdns_api_proxy.pdns import PDNSConnector
-from powerdns_api_proxy.utils import response_json_or_text
+from powerdns_api_proxy.pdns import PDNSConnector, handle_pdns_response
 
 if os.getenv("SENTRY_DSN"):
     sentry_sdk.init(
@@ -178,41 +178,29 @@ async def api_root():
 
 
 @router_pdns.get("/servers")
-async def get_servers(response: Response):
+async def get_servers():
     """
     Retrieve a list of servers which can be used.
 
     <https://doc.powerdns.com/authoritative/http-api/server.html>
     """
     req = await pdns.get("/api/v1/servers")
-    data = await req.json()
-    response.status_code = req.status
-
-    if response.status_code == HTTPStatus.OK:
-      return data
-    elif 'error' in data:
-      raise UpstreamException()
-    else:
-      raise UnhandledException()
+    pdns_response = await handle_pdns_response(req)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.get("/servers/{server_id}")
-async def get_server(response: Response, server_id: str):
+async def get_server(server_id: str):
     """
     Retrieve a specific server.
 
     <https://doc.powerdns.com/authoritative/http-api/server.html>
     """
     resp = await pdns.get(f"/api/v1/servers/{server_id}")
-    data = await response_json_or_text(resp)
-    response.status_code = resp.status
-
-    if response.status_code == HTTPStatus.OK:
-      return data
-    elif 'error' in data:
-      raise UpstreamException()
-    else:
-      raise UnhandledException()
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.get(
@@ -248,7 +236,6 @@ async def get_statistics(
 )
 async def get_zones(
     request: Request,
-    response: Response,
     server_id: str,
     X_API_Key: str = Header(),
 ):
@@ -261,23 +248,22 @@ async def get_zones(
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/zones", dict(request.query_params)
     )
-    response.status_code = resp.status
-    zones = await resp.json()
+    pdns_response = await handle_pdns_response(resp)
 
-    if response.status_code == HTTPStatus.OK:
-      return get_only_pdns_zones_allowed(environment, zones)
-    elif 'error' in zones:
-      raise UpstreamException()
+    status_code = pdns_response.raise_for_error()
+
+    if isinstance(pdns_response.data, list):
+        filtered_data = get_only_pdns_zones_allowed(environment, pdns_response.data)
+        return JSONResponse(content=filtered_data, status_code=status_code)
     else:
-      raise UnhandledException()
+        logger.error(
+            f"We expected powerdns to return json, it returned a string: {pdns_response.data}"
+        )
+        raise UpstreamException()
 
 
-@router_pdns.post(
-    "/servers/{server_id}/zones",
-)
-async def create_zone(
-    request: Request, response: Response, server_id: str, X_API_Key: str = Header()
-):
+@router_pdns.post("/servers/{server_id}/zones")
+async def create_zone(request: Request, server_id: str, X_API_Key: str = Header()):
     """
     Create a new zone.
 
@@ -291,9 +277,11 @@ async def create_zone(
     if not check_pdns_zone_admin(environment, payload["name"]):
         raise ZoneAdminNotAllowedException()
     resp = await pdns.post(f"/api/v1/servers/{server_id}/zones", payload)
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-    return data
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+
+    # POST typically returns 201 Created
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.get(
@@ -301,7 +289,6 @@ async def create_zone(
 )
 async def get_zone_metadata(
     request: Request,
-    response: Response,
     server_id: str,
     zone_id: str,
     X_API_Key: str = Header(),
@@ -319,21 +306,14 @@ async def get_zone_metadata(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         params=dict(request.query_params),
     )
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-
-    if response.status_code == HTTPStatus.OK:
-      return data
-    elif 'error' in data:
-      raise UpstreamException()
-    else:
-      raise UnhandledException()
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.put("/servers/{server_id}/zones/{zone_id}")
 async def update_zone_metadata(
     request: Request,
-    response: Response,
     server_id: str,
     zone_id: str,
     X_API_Key: str = Header(),
@@ -352,17 +332,18 @@ async def update_zone_metadata(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         payload=await request.json(),
     )
-    response.status_code = resp.status
-    if response.status_code != HTTPStatus.NO_CONTENT:
-        data = await response_json_or_text(resp)
-        return data
-    return Response(status_code=HTTPStatus.NO_CONTENT)
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+
+    if status_code == HTTPStatus.NO_CONTENT:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.patch("/servers/{server_id}/zones/{zone_id}")
 async def update_zone_rrset(
     request: Request,
-    response: Response,
     server_id: str,
     zone_id: str,
     X_API_Key: str = Header(),
@@ -383,17 +364,17 @@ async def update_zone_rrset(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         payload=await request.json(),
     )
-    response.status_code = resp.status
-    if response.status_code != HTTPStatus.NO_CONTENT:
-        data = await response_json_or_text(resp)
-        return data
-    return Response(status_code=HTTPStatus.NO_CONTENT)
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+
+    if status_code == HTTPStatus.NO_CONTENT:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.delete("/servers/{server_id}/zones/{zone_id}")
-async def delete_zone(
-    response: Response, server_id: str, zone_id: str, X_API_Key: str = Header()
-):
+async def delete_zone(server_id: str, zone_id: str, X_API_Key: str = Header()):
     """
     Delete a zone immediately.
 
@@ -403,17 +384,18 @@ async def delete_zone(
     if not check_pdns_zone_admin(environment, zone_id):
         raise ZoneNotAllowedException()
     resp = await pdns.delete(f"/api/v1/servers/{server_id}/zones/{zone_id}")
-    response.status_code = resp.status
-    if response.status_code != HTTPStatus.NO_CONTENT:
-        data = await response_json_or_text(resp)
-        return data
-    return Response(status_code=HTTPStatus.NO_CONTENT)
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+
+    # DELETE operations often return 204 No Content
+    if status_code == HTTPStatus.NO_CONTENT:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.put("/servers/{server_id}/zones/{zone_id}/notify")
-async def zone_notification(
-    response: Response, server_id: str, zone_id: str, X_API_Key: str = Header()
-):
+async def zone_notification(server_id: str, zone_id: str, X_API_Key: str = Header()):
     """
     Queue a zone for notification to replicas.
 
@@ -424,14 +406,18 @@ async def zone_notification(
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/notify")
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-    return data
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+
+    # PUT operations often return 204 No Content
+    if status_code == HTTPStatus.NO_CONTENT:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.get("/servers/{server_id}/search-data")
 async def search_data(
-    response: Response,
     server_id: str,
     q: str,
     max: int | None = None,
@@ -464,19 +450,13 @@ async def search_data(
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/search-data", params=search_params
     )
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-
-    if response.status_code == HTTPStatus.OK:
-      return data
-    elif 'error' in data:
-      raise UpstreamException()
-    else:
-      raise UnhandledException()
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.get("/servers/{server_id}/tsigkeys")
-async def list_tsigkeys(response: Response, server_id: str, X_API_Key: str = Header()):
+async def list_tsigkeys(server_id: str, X_API_Key: str = Header()):
     """
     Get all TSIGKeys on the server, except the actual key.
 
@@ -487,21 +467,13 @@ async def list_tsigkeys(response: Response, server_id: str, X_API_Key: str = Hea
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     resp = await pdns.get(f"/api/v1/servers/{server_id}/tsigkeys")
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-
-    if response.status_code == HTTPStatus.OK:
-      return data
-    elif 'error' in data:
-      raise UpstreamException()
-    else:
-      raise UnhandledException()
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.get("/servers/{server_id}/tsigkeys/{tsigkey_id}")
-async def fetch_tsigkey(
-    response: Response, server_id: str, tsigkey_id: str, X_API_Key: str = Header()
-):
+async def fetch_tsigkey(server_id: str, tsigkey_id: str, X_API_Key: str = Header()):
     """
     Get a specific TSIGKeys on the server, including the actual key.
 
@@ -512,22 +484,13 @@ async def fetch_tsigkey(
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     resp = await pdns.get(f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}")
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-
-    if response.status_code == HTTPStatus.OK:
-      return data
-    elif 'error' in data:
-      raise UpstreamException()
-    else:
-      raise UnhandledException()
-
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.post("/servers/{server_id}/tsigkeys")
-async def create_tsigkey(
-    request: Request, response: Response, server_id: str, X_API_Key: str = Header()
-):
+async def create_tsigkey(request: Request, server_id: str, X_API_Key: str = Header()):
     """
     Add a TSIG key.
 
@@ -543,15 +506,14 @@ async def create_tsigkey(
     resp = await pdns.post(
         f"/api/v1/servers/{server_id}/tsigkeys", payload=await request.json()
     )
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-    return data
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.put("/servers/{server_id}/tsigkeys/{tsigkey_id}")
 async def update_tsigkey(
     request: Request,
-    response: Response,
     server_id: str,
     tsigkey_id: str,
     X_API_Key: str = Header(),
@@ -575,15 +537,13 @@ async def update_tsigkey(
         f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}",
         payload=await request.json(),
     )
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-    return data
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.delete("/servers/{server_id}/tsigkeys/{tsigkey_id}")
-async def delete_tsigkey(
-    response: Response, server_id: str, tsigkey_id: str, X_API_Key: str = Header()
-):
+async def delete_tsigkey(server_id: str, tsigkey_id: str, X_API_Key: str = Header()):
     """
     Delete the TSIGKey with tsigkey_id.
 
@@ -594,9 +554,9 @@ async def delete_tsigkey(
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     resp = await pdns.delete(f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}")
-    response.status_code = resp.status
-    data = await response_json_or_text(resp)
-    return data
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 app.include_router(router_proxy)
