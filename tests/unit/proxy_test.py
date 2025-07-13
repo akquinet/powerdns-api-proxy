@@ -118,6 +118,7 @@ def test_api_post_missing_token(path, fixture_patch_dummy_config, fixture_patch_
 put_routes = [
     "/api/v1/servers/localhost/zones/test-zone.example.com.",
     "/api/v1/servers/localhost/zones/test-zone.example.com./notify",
+    "/api/v1/servers/localhost/zones/test-zone.example.com./rectify",
 ]
 
 

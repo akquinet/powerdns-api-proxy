@@ -416,6 +416,30 @@ async def zone_notification(server_id: str, zone_id: str, X_API_Key: str = Heade
     return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
+@router_pdns.put("/servers/{server_id}/zones/{zone_id}/rectify")
+async def zone_rectification(
+    response: Response, server_id: str, zone_id: str, X_API_Key: str = Header()
+):
+    """
+    Rectify the zone data.
+
+    <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id-rectify>
+    """
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_zone_allowed(environment, zone_id):
+        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
+        raise ZoneNotAllowedException()
+    resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/rectify")
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+
+    # PUT operations often return 204 No Content
+    if status_code == HTTPStatus.NO_CONTENT:
+        return Response(status_code=HTTPStatus.NO_CONTENT)
+
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
+
+
 @router_pdns.get("/servers/{server_id}/search-data")
 async def search_data(
     server_id: str,
