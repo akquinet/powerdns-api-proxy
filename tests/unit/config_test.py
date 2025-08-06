@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from powerdns_api_proxy.config import (
     check_acme_record_allowed,
     check_pdns_search_allowed,
+    check_pdns_cryptokeys_allowed,
     check_pdns_tsigkeys_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
@@ -225,7 +226,7 @@ def test_check_pdns_zone_allowed_allowed_without_trailing_point():
 
 
 def test_check_pdns_zone_allowed_allowed_without_trailing_point_point_last_item():
-    env = dummy_proxy_environment
+    env = deepcopy(dummy_proxy_environment)
     env.zones[0].name = "blablub.example.com+"
     zone = "blablub.example.com"
     assert not check_pdns_zone_allowed(env, zone)
@@ -583,6 +584,26 @@ def test_search_allowed_globally():
     environment = deepcopy(dummy_proxy_environment)
     environment.global_search = True
     assert check_pdns_search_allowed(environment, "test", "all") is True
+
+
+def test_cryptokeys_not_allowed():
+    environment = dummy_proxy_environment
+    assert check_pdns_cryptokeys_allowed(environment, "test") is False
+    assert check_pdns_cryptokeys_allowed(environment, "test.example.com.") is False
+
+
+def test_cryptokeys_allowed_zone_only():
+    environment = deepcopy(dummy_proxy_environment)
+    environment.zones[0].cryptokeys = True
+    assert check_pdns_cryptokeys_allowed(environment, "test") is False
+    assert check_pdns_cryptokeys_allowed(environment, "test.example.com.") is True
+
+
+def test_cryptokeys_allowed_global():
+    environment = deepcopy(dummy_proxy_environment)
+    environment.global_cryptokeys = True
+    assert check_pdns_cryptokeys_allowed(environment, "test") is True
+    assert check_pdns_cryptokeys_allowed(environment, "test.example.com.") is True
 
 
 def test_tsigkeys_not_allowed():

@@ -190,6 +190,20 @@ def check_acme_record_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
     return False
 
 
+def check_pdns_cryptokeys_allowed(
+    environment: ProxyConfigEnvironment, zone: str
+) -> bool:
+    if environment.global_cryptokeys:
+        return True
+
+    try:
+        return environment.get_zone_if_allowed(zone).cryptokeys
+    except ZoneNotAllowedException:
+        pass
+
+    return False
+
+
 def check_pdns_tsigkeys_allowed(environment: ProxyConfigEnvironment) -> bool:
     if environment.global_tsigkeys:
         return True

@@ -232,6 +232,23 @@ environments:
       global_tsigkeys: true
 ```
 
+#### CryptoKeys (DNSSEC)
+
+Global or zone-specific CryptoKeys access can be enabled.
+
+This allows for reading and writing of DNSSEC key material.
+
+```yaml
+...
+environments:
+    - name: "Test1"
+      global_cryptokeys: true
+    - name: example.com
+      zones:
+        - name: "example.com"
+          cryptokeys: true
+```
+
 ### Metrics of the proxy
 
 The proxy exposes metrics on the `/metrics` endpoint.
