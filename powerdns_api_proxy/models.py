@@ -26,7 +26,7 @@ class ProxyConfigZone(BaseModel):
     `admin` enabled creating and deleting the zone.
     `subzones` sets the same permissions on all subzones.
     `all_records` will be set to `True` if no `records` are defined.
-    `read_only` will be set to `True` if `global_read_only` is `True`.
+    `read_only` controls write permissions for this specific zone.
     """
 
     name: str
@@ -84,15 +84,10 @@ class ProxyConfigEnvironment(BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
-        if self.global_read_only:
-            logger.debug(
-                "Setting all subzones to read_only, because global_read_only is true"
-            )
-            for zone in self.zones:
-                zone.read_only = True
-
-                # populate zones lookup
-                self._zones_lookup[zone.name] = zone
+        
+        # populate zones lookup
+        for zone in self.zones:
+            self._zones_lookup[zone.name] = zone
 
     def __hash__(self):
         return hash(
