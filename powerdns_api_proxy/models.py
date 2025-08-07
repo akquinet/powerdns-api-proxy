@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import TypedDict
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.utils import (
@@ -53,7 +53,7 @@ class ProxyConfigZone(BaseModel):
 class ProxyConfigEnvironment(BaseModel):
     name: str
     token_sha512: str
-    zones: list[ProxyConfigZone]
+    zones: list[ProxyConfigZone] = []
     global_read_only: bool = False
     global_search: bool = False
     global_tsigkeys: bool = False
@@ -73,6 +73,14 @@ class ProxyConfigEnvironment(BaseModel):
         if len(token_sha512) != 128:
             raise ValueError("A SHA512 hash must be 128 digits long")
         return token_sha512
+
+    @model_validator(mode='after')
+    def validate_zones_or_global_read_only(self):
+        if not self.zones and not self.global_read_only:
+            raise ValueError(
+                "Either 'zones' must be non-empty or 'global_read_only' must be True"
+            )
+        return self
 
     def __init__(self, **data):
         super().__init__(**data)
