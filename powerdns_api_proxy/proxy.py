@@ -3,12 +3,9 @@ from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Literal
 
-import sentry_sdk
 from fastapi import APIRouter, Depends, FastAPI, Header, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
-from sentry_sdk.integrations.aiohttp import AioHttpIntegration
-from sentry_sdk.integrations.fastapi import FastApiIntegration
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from powerdns_api_proxy.config import (
@@ -40,6 +37,10 @@ from powerdns_api_proxy.models import (
 from powerdns_api_proxy.pdns import PDNSConnector, handle_pdns_response
 
 if os.getenv("SENTRY_DSN"):
+    import sentry_sdk
+    from sentry_sdk.integrations.aiohttp import AioHttpIntegration
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+
     sentry_sdk.init(
         traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE") or 0.1),
         environment=os.getenv("ENVIRONMENT") or "DEV",

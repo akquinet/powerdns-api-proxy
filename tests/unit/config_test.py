@@ -616,3 +616,79 @@ def test_tsigkeys_allowed_globally():
     environment = deepcopy(dummy_proxy_environment)
     environment.global_tsigkeys = True
     assert check_pdns_tsigkeys_allowed(environment) is True
+
+
+def test_global_read_only_without_zones():
+    """Test that global_read_only=True allows empty zones list"""
+    env = ProxyConfigEnvironment(
+        name="Test Global Read Only",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        global_read_only=True,
+    )
+    assert env.global_read_only is True
+    assert env.zones == []
+
+
+def test_environment_with_neither_zones_nor_global_read_only_fails():
+    """Test that providing neither zones nor global_read_only fails validation"""
+    with pytest.raises(ValueError) as err:
+        ProxyConfigEnvironment(
+            name="test", token_sha512=dummy_proxy_environment_token_sha512
+        )
+    assert "Either 'zones' must be non-empty or 'global_read_only' must be True" in str(
+        err.value
+    )
+
+
+def test_environment_with_empty_zones_and_no_global_read_only_fails():
+    """Test that explicitly providing empty zones without global_read_only fails"""
+    with pytest.raises(ValueError) as err:
+        ProxyConfigEnvironment(
+            name="test", token_sha512=dummy_proxy_environment_token_sha512, zones=[]
+        )
+    assert "Either 'zones' must be non-empty or 'global_read_only' must be True" in str(
+        err.value
+    )
+
+
+def test_proxy_config_with_global_read_only_environment():
+    """Test that ProxyConfig works with global_read_only environment without zones"""
+    config = ProxyConfig(
+        pdns_api_url="https://powerdns-api.example.com",
+        pdns_api_token="blablub",
+        environments=[
+            ProxyConfigEnvironment(
+                name="foo",
+                token_sha512=dummy_proxy_environment_token_sha512,
+                global_read_only=True,
+            )
+        ],
+    )
+    assert config.environments[0].global_read_only is True
+    assert config.environments[0].zones == []
+
+
+def test_global_read_only_with_explicit_zones_keeps_zone_permissions():
+    """Test that global_read_only=True doesn't force explicit zones to be read_only"""
+    # Create a zone that should remain writable
+    writable_zone = ProxyConfigZone(name="example.com", read_only=False)
+    readonly_zone = ProxyConfigZone(name="readonly.com", read_only=True)
+
+    env = ProxyConfigEnvironment(
+        name="Test Global Read Only with Zones",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[writable_zone, readonly_zone],
+        global_read_only=True,
+    )
+
+    # global_read_only should be True
+    assert env.global_read_only is True
+
+    # But explicit zones should keep their original read_only settings
+    assert env.zones[0].read_only is False  # writable_zone should remain writable
+    assert env.zones[1].read_only is True  # readonly_zone should remain read_only
+
+    # Should have access to zones via lookup
+    assert len(env._zones_lookup) == 2
+    assert "example.com" in env._zones_lookup
+    assert "readonly.com" in env._zones_lookup
