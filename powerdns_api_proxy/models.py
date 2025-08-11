@@ -74,7 +74,7 @@ class ProxyConfigEnvironment(BaseModel):
             raise ValueError("A SHA512 hash must be 128 digits long")
         return token_sha512
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_zones_or_global_read_only(self):
         if not self.zones and not self.global_read_only:
             raise ValueError(
@@ -84,7 +84,7 @@ class ProxyConfigEnvironment(BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
-        
+
         # populate zones lookup
         for zone in self.zones:
             self._zones_lookup[zone.name] = zone
