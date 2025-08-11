@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from powerdns_api_proxy.config import (
     check_pdns_search_allowed,
+    check_pdns_cryptokeys_allowed,
     check_pdns_tsigkeys_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
@@ -474,6 +475,115 @@ async def search_data(
         search_params["max"] = max
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/search-data", params=search_params
+    )
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
+
+
+@router_pdns.get("/servers/{server_id}/zones/{zone_id}/cryptokeys")
+async def list_cryptokeys(server_id: str, zone_id: str, X_API_Key: str = Header()):
+    """
+    Get all CryptoKeys for a zone, except the private key.
+
+    <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#get--servers-server_id-zones-zone_id-cryptokeys>
+    """
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_cryptokeys_allowed(environment, zone_id):
+        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        raise ZoneNotAllowedException()
+    resp = await pdns.get(f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys")
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
+
+
+@router_pdns.post("/servers/{server_id}/zones/{zone_id}/cryptokeys")
+async def create_cryptokey(
+    request: Request, server_id: str, zone_id: str, X_API_Key: str = Header()
+):
+    """
+    Creates a Cryptokey.
+
+    This method adds a new key to a zone.
+
+    <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#post--servers-server_id-zones-zone_id-cryptokeys>
+    """
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_cryptokeys_allowed(environment, zone_id):
+        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        raise ZoneNotAllowedException()
+    resp = await pdns.post(
+        f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys",
+        payload=await request.json(),
+    )
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
+
+
+@router_pdns.get("/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}")
+async def fetch_cryptokey(
+    server_id: str, zone_id: str, cryptokey_id: str, X_API_Key: str = Header()
+):
+    """
+    Returns all data about the CryptoKey, including the private key.
+
+    <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#get--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
+    """
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_cryptokeys_allowed(environment, zone_id):
+        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        raise ZoneNotAllowedException()
+    resp = await pdns.get(
+        f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}"
+    )
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
+
+
+@router_pdns.put("/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}")
+async def update_cryptokey(
+    request: Request,
+    server_id: str,
+    zone_id: str,
+    cryptokey_id: str,
+    X_API_Key: str = Header(),
+):
+    """
+    This method (de)activates a key from zone_name specified by cryptokey_id.
+
+    <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#put--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
+    """
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_cryptokeys_allowed(environment, zone_id):
+        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        raise ZoneNotAllowedException()
+    resp = await pdns.put(
+        f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}",
+        payload=await request.json(),
+    )
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
+
+
+@router_pdns.delete("/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}")
+async def delete_cryptokey(
+    server_id: str, zone_id: str, cryptokey_id: str, X_API_Key: str = Header()
+):
+    """
+    This method deletes a key specified by cryptokey_id.
+
+    <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#delete--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
+    """
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_cryptokeys_allowed(environment, zone_id):
+        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        raise ZoneNotAllowedException()
+    resp = await pdns.delete(
+        f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}"
     )
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()

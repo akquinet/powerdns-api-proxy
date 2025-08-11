@@ -26,6 +26,7 @@ class ProxyConfigZone(BaseModel):
     `admin` enabled creating and deleting the zone.
     `subzones` sets the same permissions on all subzones.
     `all_records` will be set to `True` if no `records` are defined.
+    `cryptokeys` enables management of DNSSEC.
     `read_only` controls write permissions for this specific zone.
     """
 
@@ -39,6 +40,7 @@ class ProxyConfigZone(BaseModel):
     subzones: bool = False
     all_records: bool = False
     read_only: bool = False
+    cryptokeys: bool = False
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -56,6 +58,7 @@ class ProxyConfigEnvironment(BaseModel):
     zones: list[ProxyConfigZone] = []
     global_read_only: bool = False
     global_search: bool = False
+    global_cryptokeys: bool = False
     global_tsigkeys: bool = False
     _zones_lookup: dict[str, ProxyConfigZone] = {}
     metrics_proxy: bool = False
