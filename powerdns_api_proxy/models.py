@@ -31,7 +31,7 @@ class ProxyConfigZone(BaseModel):
 
     name: str
     regex: bool = False
-    description: str = ""
+    description: str = ''
     records: list[str] = []
     regex_records: list[str] = []
     services: ProxyConfigServices = ProxyConfigServices(acme=False)
@@ -44,7 +44,8 @@ class ProxyConfigZone(BaseModel):
         super().__init__(**data)
         if len(self.records) == 0 and len(self.regex_records) == 0:
             logger.debug(
-                f"Setting all_records to True for zone {self.name}, because no records are defined"
+                f'Setting all_records to True for zone {self.name}, because '
+                f'no records are defined'
             )
             self.all_records = True
             self.services.acme = True
@@ -60,31 +61,32 @@ class ProxyConfigEnvironment(BaseModel):
     _zones_lookup: dict[str, ProxyConfigZone] = {}
     metrics_proxy: bool = False
 
-    @field_validator("name")
+    @field_validator('name')
     @classmethod
     def name_defined(cls, v):
         if len(v) == 0:
-            raise ValueError("name must a non-empty string")
+            raise ValueError('name must a non-empty string')
         return v
 
-    @field_validator("token_sha512")
+    @field_validator('token_sha512')
     @classmethod
     def validate_token(cls, token_sha512):
         if len(token_sha512) != 128:
-            raise ValueError("A SHA512 hash must be 128 digits long")
+            raise ValueError('A SHA512 hash must be 128 digits long')
         return token_sha512
 
     @model_validator(mode='after')
     def validate_zones_or_global_read_only(self):
         if not self.zones and not self.global_read_only:
-            raise ValueError(
-                "Either 'zones' must be non-empty or 'global_read_only' must be True"
+            raise ValueError(  # noqa: Q003, Q000
+                "Either 'zones' must be non-empty or 'global_read_only' "  # noqa
+                "must be True"  # noqa
             )
         return self
 
     def __init__(self, **data):
         super().__init__(**data)
-        
+
         # populate zones lookup
         for zone in self.zones:
             self._zones_lookup[zone.name] = zone
@@ -160,7 +162,8 @@ class ProxyConfig(BaseModel):
             <center>
             <h1>PowerDNS API Proxy</h1>
             <p><a href="/docs">Swagger Docs</a></p>
-            <q>The Domain Name Server (DNS) is the Achilles heel of the Web.<br>
+            <q>The Domain Name Server (DNS) is the Achilles heel of the
+            Web.<br>
             The important thing is that it's managed responsibly.</q>
             </center>
         </body>
@@ -169,18 +172,18 @@ class ProxyConfig(BaseModel):
     # Dictionary for fast token lookups
     token_env_map: dict[str, ProxyConfigEnvironment] = {}
 
-    @field_validator("pdns_api_url")
+    @field_validator('pdns_api_url')
     @classmethod
     def api_url_defined(cls, v):
         if len(v) == 0:
-            raise ValueError("pdns_api_url must a non-empty string")
+            raise ValueError('pdns_api_url must a non-empty string')
         return v
 
-    @field_validator("pdns_api_token")
+    @field_validator('pdns_api_token')
     @classmethod
     def api_token_defined(cls, v):
         if len(v) == 0:
-            raise ValueError("pdns_api_token must a non-empty string")
+            raise ValueError('pdns_api_token must a non-empty string')
         return v
 
     def __init__(self, **data):
