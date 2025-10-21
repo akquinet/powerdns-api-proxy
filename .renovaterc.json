@@ -19,7 +19,7 @@
 			"packagePatterns": [
 				".*"
 			],
-			"semanticCommitType": "fix"
+			"semanticCommitType": "chore"
 		},
 		{
 			"matchUpdateTypes": [
@@ -35,8 +35,7 @@
 			],
 			"matchFiles": [
 				"requirements-dev.txt"
-			],
-			"semanticCommitType": "chore"
+			]
 		},
 		{
 			"matchDatasources": [
@@ -70,8 +69,7 @@
 				"pin",
 				"digest"
 			],
-			"automerge": true,
-			"semanticCommitType": "chore"
+			"automerge": true
 		},
 		{
 			"matchManagers": [
@@ -86,7 +84,6 @@
 				"pycqa/isort"
 			],
 			"automerge": true,
-			"semanticCommitType": "chore",
 			"groupName": "pre-commit-hooks"
 		}
 	]
