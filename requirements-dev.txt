@@ -6,4 +6,4 @@ pre-commit==4.3.0
 pytest==8.4.2
 pytest-cov==6.3.0
 python-powerdns==2.1.0
-requests==2.32.4
+requests==2.32.5
