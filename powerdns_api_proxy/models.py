@@ -140,6 +140,7 @@ class ProxyConfig(BaseModel):
         api_docs_enabled: Enable API documentation.
         index_enabled: Enable default web page
         index_html: Custom html for the homepage
+        audit_log_path: Path to the audit log file.
 
     """
 
@@ -152,6 +153,8 @@ class ProxyConfig(BaseModel):
     metrics_require_auth: bool = True
 
     api_docs_enabled: bool = True
+
+    audit_log_path: str = "audit.log"
 
     index_enabled: bool = True
     index_html: str = """

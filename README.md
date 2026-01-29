@@ -42,6 +42,7 @@ The Upstream PowerDNS API must be maintained at the top level.
 pdns_api_url: "https://powerdns-api.example.com"
 pdns_api_token: "blablub"
 pdns_api_verify_ssl: True
+audit_log_path: "audit.log"  # Optional, defaults to audit.log
 environments:
   ...
 
@@ -332,4 +333,23 @@ make run-docker-debug
 ```bash
 PROXY_CONFIG_PATH=./config.yml
 LOG_LEVEL=DEBUG
+```
+
+### Audit Logging
+
+All write operations (create, update, delete) are automatically logged to:
+- The application logger (format: `{environment} {method} {path} -> {status_code}`)
+- A separate audit log file (configurable via `audit_log_path` in config.yml)
+
+Each audit entry contains:
+- `timestamp`: ISO 8601 timestamp with timezone
+- `environment`: Name of the authenticated environment/token
+- `method`: HTTP method (POST, PUT, PATCH, DELETE)
+- `path`: Resource path that was modified
+- `payload`: Request payload (null for DELETE operations)
+- `status_code`: HTTP response status code
+
+Example audit log entry:
+```json
+{"timestamp": "2026-01-29T14:53:47.555000+00:00", "environment": "Test1", "method": "PATCH", "path": "/zones/example.com", "payload": {"rrsets": [...]}, "status_code": 204}
 ```
