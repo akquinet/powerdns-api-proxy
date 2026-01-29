@@ -2,6 +2,10 @@ FROM docker.io/python:3.13.5-slim
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq=1.7.1-3 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt /app
 ENV PATH=/venv/bin:$PATH
 RUN : \

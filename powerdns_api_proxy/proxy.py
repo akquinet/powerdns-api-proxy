@@ -1,9 +1,18 @@
 import os
+import json
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Header, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
 from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -35,7 +44,7 @@ from powerdns_api_proxy.models import (
     ResponseZoneAllowed,
 )
 from powerdns_api_proxy.pdns import PDNSConnector, handle_pdns_response
-from powerdns_api_proxy.audit import log_change
+from powerdns_api_proxy.audit import AuditLogger
 
 if os.getenv("SENTRY_DSN"):
     import sentry_sdk
@@ -54,6 +63,8 @@ config = load_config()
 pdns = PDNSConnector(
     config.pdns_api_url, config.pdns_api_token, config.pdns_api_verify_ssl
 )
+
+audit_logger = AuditLogger(config.audit_log_path)
 
 
 @asynccontextmanager
@@ -168,6 +179,43 @@ async def get_zone_allowed(zone: str, X_API_Key: str = Header()):
     return ResponseZoneAllowed(zone=zone, allowed=True, config=zone_config)
 
 
+@router_proxy.get("/audit-log")
+async def get_audit_log(
+    environment: str | None = None,
+    method: str | None = None,
+    status_code: int | None = None,
+    limit: int = 100,
+    X_API_Key: str = Header(),
+):
+    """
+    Retrieve audit log entries with optional filtering.
+    Requires global_audit_log_access permission.
+    """
+    env = get_environment_for_token(config, X_API_Key)
+    if not env.global_audit_log_access:
+        audit_logger.log_change(env.name, "GET", "/info/audit-log", None, 403)
+        raise HTTPException(403, "Audit log access not allowed")
+
+    entries: list[dict] = []
+    with open(config.audit_log_path) as f:
+        for line in f:
+            if len(entries) >= limit:
+                break
+            try:
+                entry = json.loads(line)
+                if environment and entry.get("environment") != environment:
+                    continue
+                if method and entry.get("method") != method:
+                    continue
+                if status_code and entry.get("status_code") != status_code:
+                    continue
+                entries.append(entry)
+            except json.JSONDecodeError:
+                continue
+
+    return JSONResponse(content=entries)
+
+
 @app.get("/api", dependencies=[Depends(dependency_check_token_defined)])
 async def api_root():
     """Returns the version and a info that this is a proxy."""
@@ -276,14 +324,22 @@ async def create_zone(request: Request, server_id: str, X_API_Key: str = Header(
     logger.info(f'Zone creation request data: "{payload}"')
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_allowed(environment, payload["name"]):
+        audit_logger.log_change(
+            environment.name, "POST", f"/zones/{payload['name']}", payload, 403
+        )
         raise ZoneNotAllowedException()
     if not check_pdns_zone_admin(environment, payload["name"]):
+        audit_logger.log_change(
+            environment.name, "POST", f"/zones/{payload['name']}", payload, 403
+        )
         raise ZoneAdminNotAllowedException()
     resp = await pdns.post(f"/api/v1/servers/{server_id}/zones", payload)
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
 
-    log_change(config.audit_log_path, environment.name, "POST", f"/zones/{payload['name']}", payload, status_code)
+    audit_logger.log_change(
+        environment.name, "POST", f"/zones/{payload['name']}", payload, status_code
+    )
 
     # POST typically returns 201 Created
     return JSONResponse(content=pdns_response.data, status_code=status_code)
@@ -329,11 +385,17 @@ async def update_zone_metadata(
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
+    payload = await request.json()
     if not check_pdns_zone_allowed(environment, zone_id):
+        audit_logger.log_change(
+            environment.name, "PUT", f"/zones/{zone_id}", payload, 403
+        )
         raise ZoneNotAllowedException()
     if not check_pdns_zone_admin(environment, zone_id):
+        audit_logger.log_change(
+            environment.name, "PUT", f"/zones/{zone_id}", payload, 403
+        )
         raise ZoneAdminNotAllowedException()
-    payload = await request.json()
     resp = await pdns.put(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         payload=payload,
@@ -341,7 +403,9 @@ async def update_zone_metadata(
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
 
-    log_change(config.audit_log_path, environment.name, "PUT", f"/zones/{zone_id}", payload, status_code)
+    audit_logger.log_change(
+        environment.name, "PUT", f"/zones/{zone_id}", payload, status_code
+    )
 
     if status_code == HTTPStatus.NO_CONTENT:
         return Response(status_code=HTTPStatus.NO_CONTENT)
@@ -363,12 +427,21 @@ async def update_zone_rrset(
     """
     logger.debug(f"Update RRSet request for {zone_id}")
     environment = get_environment_for_token(config, X_API_Key)
+    payload = await request.json()
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
+        audit_logger.log_change(
+            environment.name, "PATCH", f"/zones/{zone_id}", payload, 403
+        )
         raise ZoneNotAllowedException()
     zone = environment.get_zone_if_allowed(zone_id)
-    payload = await request.json()
-    ensure_rrsets_request_allowed(zone, payload)
+    try:
+        ensure_rrsets_request_allowed(zone, payload)
+    except HTTPException:
+        audit_logger.log_change(
+            environment.name, "PATCH", f"/zones/{zone_id}", payload, 403
+        )
+        raise
     resp = await pdns.patch(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         payload=payload,
@@ -376,7 +449,9 @@ async def update_zone_rrset(
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
 
-    log_change(config.audit_log_path, environment.name, "PATCH", f"/zones/{zone_id}", payload, status_code)
+    audit_logger.log_change(
+        environment.name, "PATCH", f"/zones/{zone_id}", payload, status_code
+    )
 
     if status_code == HTTPStatus.NO_CONTENT:
         return Response(status_code=HTTPStatus.NO_CONTENT)
@@ -393,12 +468,17 @@ async def delete_zone(server_id: str, zone_id: str, X_API_Key: str = Header()):
     """
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_admin(environment, zone_id):
+        audit_logger.log_change(
+            environment.name, "DELETE", f"/zones/{zone_id}", None, 403
+        )
         raise ZoneNotAllowedException()
     resp = await pdns.delete(f"/api/v1/servers/{server_id}/zones/{zone_id}")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
 
-    log_change(config.audit_log_path, environment.name, "DELETE", f"/zones/{zone_id}", None, status_code)
+    audit_logger.log_change(
+        environment.name, "DELETE", f"/zones/{zone_id}", None, status_code
+    )
 
     # DELETE operations often return 204 No Content
     if status_code == HTTPStatus.NO_CONTENT:
@@ -521,19 +601,24 @@ async def create_cryptokey(
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#post--servers-server_id-zones-zone_id-cryptokeys>
     """
     environment = get_environment_for_token(config, X_API_Key)
+    payload = await request.json()
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        audit_logger.log_change(
+            environment.name, "POST", f"/zones/{zone_id}/cryptokeys", payload, 403
+        )
         raise ZoneNotAllowedException()
-    payload = await request.json()
     resp = await pdns.post(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys",
         payload=payload,
     )
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
-    
-    log_change(config.audit_log_path, environment.name, "POST", f"/zones/{zone_id}/cryptokeys", payload, status_code)
-    
+
+    audit_logger.log_change(
+        environment.name, "POST", f"/zones/{zone_id}/cryptokeys", payload, status_code
+    )
+
     return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
@@ -572,19 +657,32 @@ async def update_cryptokey(
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#put--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
+    payload = await request.json()
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        audit_logger.log_change(
+            environment.name,
+            "PUT",
+            f"/zones/{zone_id}/cryptokeys/{cryptokey_id}",
+            payload,
+            403,
+        )
         raise ZoneNotAllowedException()
-    payload = await request.json()
     resp = await pdns.put(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}",
         payload=payload,
     )
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
-    
-    log_change(config.audit_log_path, environment.name, "PUT", f"/zones/{zone_id}/cryptokeys/{cryptokey_id}", payload, status_code)
-    
+
+    audit_logger.log_change(
+        environment.name,
+        "PUT",
+        f"/zones/{zone_id}/cryptokeys/{cryptokey_id}",
+        payload,
+        status_code,
+    )
+
     return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
@@ -600,15 +698,28 @@ async def delete_cryptokey(
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        audit_logger.log_change(
+            environment.name,
+            "DELETE",
+            f"/zones/{zone_id}/cryptokeys/{cryptokey_id}",
+            None,
+            403,
+        )
         raise ZoneNotAllowedException()
     resp = await pdns.delete(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}"
     )
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
-    
-    log_change(config.audit_log_path, environment.name, "DELETE", f"/zones/{zone_id}/cryptokeys/{cryptokey_id}", None, status_code)
-    
+
+    audit_logger.log_change(
+        environment.name,
+        "DELETE",
+        f"/zones/{zone_id}/cryptokeys/{cryptokey_id}",
+        None,
+        status_code,
+    )
+
     return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
@@ -657,18 +768,17 @@ async def create_tsigkey(request: Request, server_id: str, X_API_Key: str = Head
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#post--servers-server_id-tsigkeys>
     """
     environment = get_environment_for_token(config, X_API_Key)
+    payload = await request.json()
     if not check_pdns_tsigkeys_allowed(environment):
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
+        audit_logger.log_change(environment.name, "POST", "/tsigkeys", payload, 403)
         raise ZoneNotAllowedException()
-    payload = await request.json()
-    resp = await pdns.post(
-        f"/api/v1/servers/{server_id}/tsigkeys", payload=payload
-    )
+    resp = await pdns.post(f"/api/v1/servers/{server_id}/tsigkeys", payload=payload)
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
-    
-    log_change(config.audit_log_path, environment.name, "POST", "/tsigkeys", payload, status_code)
-    
+
+    audit_logger.log_change(environment.name, "POST", "/tsigkeys", payload, status_code)
+
     return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
@@ -691,19 +801,24 @@ async def update_tsigkey(
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#put--servers-server_id-tsigkeys-tsigkey_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
+    payload = await request.json()
     if not check_pdns_tsigkeys_allowed(environment):
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
+        audit_logger.log_change(
+            environment.name, "PUT", f"/tsigkeys/{tsigkey_id}", payload, 403
+        )
         raise ZoneNotAllowedException()
-    payload = await request.json()
     resp = await pdns.put(
         f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}",
         payload=payload,
     )
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
-    
-    log_change(config.audit_log_path, environment.name, "PUT", f"/tsigkeys/{tsigkey_id}", payload, status_code)
-    
+
+    audit_logger.log_change(
+        environment.name, "PUT", f"/tsigkeys/{tsigkey_id}", payload, status_code
+    )
+
     return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
@@ -717,13 +832,18 @@ async def delete_tsigkey(server_id: str, tsigkey_id: str, X_API_Key: str = Heade
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
+        audit_logger.log_change(
+            environment.name, "DELETE", f"/tsigkeys/{tsigkey_id}", None, 403
+        )
         raise ZoneNotAllowedException()
     resp = await pdns.delete(f"/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
-    
-    log_change(config.audit_log_path, environment.name, "DELETE", f"/tsigkeys/{tsigkey_id}", None, status_code)
-    
+
+    audit_logger.log_change(
+        environment.name, "DELETE", f"/tsigkeys/{tsigkey_id}", None, status_code
+    )
+
     return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 

@@ -337,9 +337,9 @@ LOG_LEVEL=DEBUG
 
 ### Audit Logging
 
-All write operations (create, update, delete) are automatically logged to:
-- The application logger (format: `{environment} {method} {path} -> {status_code}`)
-- A separate audit log file (configurable via `audit_log_path` in config.yml)
+All write operations (create, update, delete) are automatically logged to a separate audit log file (configurable via `audit_log_path` in config.yml).
+
+This includes both successful operations and forbidden attempts (HTTP 403).
 
 Each audit entry contains:
 - `timestamp`: ISO 8601 timestamp with timezone
@@ -352,4 +352,26 @@ Each audit entry contains:
 Example audit log entry:
 ```json
 {"timestamp": "2026-01-29T14:53:47.555000+00:00", "environment": "Test1", "method": "PATCH", "path": "/zones/example.com", "payload": {"rrsets": [...]}, "status_code": 204}
+```
+
+#### Analyzing Audit Logs with jq
+
+```bash
+# View all entries formatted
+jq '.' audit.log
+
+# Filter by environment
+jq 'select(.environment == "Test1")' audit.log
+
+# Filter by HTTP method
+jq 'select(.method == "PATCH")' audit.log
+
+# Filter by zone
+jq 'select(.path | contains("/zones/example.com"))' audit.log
+
+# Extract only environment, method, and path
+jq '{environment, method, path}' audit.log
+
+# Pretty table format
+jq -r '[.timestamp, .environment, .method, .path, .status_code] | @tsv' audit.log | column -t
 ```

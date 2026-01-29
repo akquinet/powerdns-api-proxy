@@ -62,6 +62,7 @@ class ProxyConfigEnvironment(BaseModel):
     global_tsigkeys: bool = False
     _zones_lookup: dict[str, ProxyConfigZone] = {}
     metrics_proxy: bool = False
+    global_audit_log_access: bool = False
 
     @field_validator("name")
     @classmethod

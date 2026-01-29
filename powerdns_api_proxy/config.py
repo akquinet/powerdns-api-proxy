@@ -35,7 +35,17 @@ def load_config(path: Optional[Path] = None) -> ProxyConfig:
     with open(path) as f:
         data = safe_load(f)
 
-    return ProxyConfig(**data)
+    config = ProxyConfig(**data)
+
+    audit_path = Path(config.audit_log_path)
+    if not audit_path.exists():
+        audit_path.touch()
+    elif not audit_path.is_file():
+        raise ValueError(f"Audit log path exists but is not a file: {audit_path}")
+    elif not os.access(audit_path, os.W_OK):
+        raise ValueError(f"Audit log path is not writable: {audit_path}")
+
+    return config
 
 
 def token_defined(config: ProxyConfig, token: str) -> bool:
