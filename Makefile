@@ -19,7 +19,7 @@ integration: ## run integration tests
 	python -m pytest -vvl --setup-show -vvl tests/integration/ --showlocals
 
 run: ## run project
-	uvicorn --host 0.0.0.0 --port 8000 --reload powerdns_api_proxy.proxy:app
+	python -m powerdns_api_proxy --reload
 
 clean: ## clean cache and temp dirs
 	rm -rf ./.mypy_cache ./.pytest_cache
@@ -38,4 +38,4 @@ pre-commit: ## run pre-commit
 	pre-commit run
 
 run-docker-debug: build-docker ## run debug with docker on port 8000
-	docker run --rm -it -v "${PWD}:/app" -p 8000:8000 -e "PROXY_CONFIG_PATH=${PROXY_CONFIG_PATH}" --rm $(PROJECT_NAME):test uvicorn --host 0.0.0.0 --port 8000 --reload powerdns_api_proxy.proxy:app
+	docker run --rm -it -v "${PWD}:/app" -p 8000:8000 -e "PROXY_CONFIG_PATH=${PROXY_CONFIG_PATH}" --rm $(PROJECT_NAME):test python -m powerdns_api_proxy --reload
