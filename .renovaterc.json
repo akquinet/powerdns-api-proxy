@@ -1,90 +1,31 @@
 {
-	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": [
-		"config:base",
-		":disableDependencyDashboard"
-	],
-	"reviewers": [],
-	"pre-commit": {
-		"enabled": true
-	},
-	"pip_requirements": {
-		"fileMatch": [
-			"(^|/)([\\w-]*)requirements\\.(txt|pip)$",
-			"(^|/)([\\w-]*)requirements-dev\\.(txt|pip)$"
-		]
-	},
-	"packageRules": [
-		{
-			"packagePatterns": [
-				".*"
-			],
-			"semanticCommitType": "chore"
-		},
-		{
-			"matchUpdateTypes": [
-				"patch",
-				"pin",
-				"digest"
-			],
-			"automerge": false
-		},
-		{
-			"matchDatasources": [
-				"pypi"
-			],
-			"matchFiles": [
-				"requirements-dev.txt"
-			]
-		},
-		{
-			"matchDatasources": [
-				"pypi"
-			],
-			"matchUpdateTypes": [
-				"minor",
-				"patch",
-				"pin",
-				"digest"
-			],
-			"automerge": false
-		},
-		{
-			"matchDatasources": [
-				"pypi"
-			],
-			"matchPackageNames": [
-				"pre-commit",
-				"flake8",
-				"pylint",
-				"mypy",
-				"pytest",
-				"pytest-cov",
-				"black"
-			],
-			"groupName": "python-dev-deps",
-			"matchUpdateTypes": [
-				"minor",
-				"patch",
-				"pin",
-				"digest"
-			],
-			"automerge": true
-		},
-		{
-			"matchManagers": [
-				"pre-commit"
-			],
-			"matchPackageNames": [
-				"hadolint/hadolint",
-				"asottile/pyupgrade",
-				"pre-commit/pre-commit-hooks",
-				"pre-commit/mirrors-mypy",
-				"PyCQA/flake8",
-				"pycqa/isort"
-			],
-			"automerge": true,
-			"groupName": "pre-commit-hooks"
-		}
-	]
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "config:recommended",
+        ":disableDependencyDashboard"
+    ],
+    "schedule": [
+        "on monday"
+    ],
+    "minimumReleaseAge": "14 days",
+    "packageRules": [
+        {
+            "matchUpdateTypes": [
+                "minor",
+                "patch",
+                "digest",
+                "pin"
+            ],
+            "groupName": "all non-major dependencies",
+            "groupSlug": "all-non-major-updates"
+        },
+        {
+            "matchUpdateTypes": [
+                "major"
+            ],
+            "groupName": "all major dependencies",
+            "groupSlug": "all-major-updates",
+            "semanticCommitType": "fix"
+        }
+    ]
 }
