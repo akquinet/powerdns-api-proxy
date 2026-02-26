@@ -1,4 +1,3 @@
-from functools import lru_cache
 from typing import TypedDict
 
 from pydantic import BaseModel, field_validator
@@ -94,7 +93,6 @@ class ProxyConfigEnvironment(BaseModel):
             + str(self.zones)
         )
 
-    @lru_cache(maxsize=10000)
     def get_zone_if_allowed(self, zone: str) -> ProxyConfigZone:
         """
         Returns the zone config for the given zone name
