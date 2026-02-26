@@ -629,26 +629,15 @@ def test_global_read_only_without_zones():
     assert env.zones == []
 
 
-def test_environment_with_neither_zones_nor_global_read_only_fails():
-    """Test that providing neither zones nor global_read_only fails validation"""
-    with pytest.raises(ValueError) as err:
-        ProxyConfigEnvironment(
-            name="test", token_sha512=dummy_proxy_environment_token_sha512
-        )
-    assert "Either 'zones' must be non-empty or 'global_read_only' must be True" in str(
-        err.value
+def test_environment_with_empty_zones_denies_zone_access():
+    """Test that environment with empty zones and no global permissions denies zone access"""
+    env = ProxyConfigEnvironment(
+        name="test",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[],
     )
-
-
-def test_environment_with_empty_zones_and_no_global_read_only_fails():
-    """Test that explicitly providing empty zones without global_read_only fails"""
-    with pytest.raises(ValueError) as err:
-        ProxyConfigEnvironment(
-            name="test", token_sha512=dummy_proxy_environment_token_sha512, zones=[]
-        )
-    assert "Either 'zones' must be non-empty or 'global_read_only' must be True" in str(
-        err.value
-    )
+    assert not check_pdns_zone_allowed(env, "test.example.com.")
+    assert not check_pdns_zone_allowed(env, "any.zone.com.")
 
 
 def test_proxy_config_with_global_read_only_environment():
