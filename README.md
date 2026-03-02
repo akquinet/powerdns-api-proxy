@@ -300,7 +300,18 @@ The index page can be deactivated with the `index_enabled` option and customized
 
 ```yaml
 index_enabled: false # default is true
+
+# Single line HTML
 index_html: "<html><body><h1>PowerDNS API Proxy</h1></body></html>"
+
+# Or multiline HTML
+index_html: |
+  <html>
+    <body>
+      <h1>PowerDNS API Proxy</h1>
+      <p>Custom content here</p>
+    </body>
+  </html>
 ```
 
 ## Development
