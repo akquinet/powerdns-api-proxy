@@ -157,6 +157,7 @@ class ProxyConfig(BaseModel):
             <p><a href="/docs">Swagger Docs</a></p>
             <q>The Domain Name Server (DNS) is the Achilles heel of the Web.<br>
             The important thing is that it's managed responsibly.</q>
+            <p style="margin-top: 1em; font-size: 0.9em; color: #666;">— Tim Berners-Lee</p>
             </center>
         </body>
     </html>
