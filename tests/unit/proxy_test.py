@@ -56,6 +56,42 @@ def fixture_patch_pdns() -> Generator[AsyncMock, None, None]:
         yield pdns_patch
 
 
+def test_index_default_html():
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "PowerDNS API Proxy" in response.text
+
+
+def test_index_custom_html():
+    custom_html = "<html><body><h1>Custom Page</h1></body></html>"
+    custom_config = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[dummy_proxy_environment],
+        index_html=custom_html,
+    )
+
+    with patch("powerdns_api_proxy.proxy.config", custom_config):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert response.text == custom_html
+        assert "<h1>Custom Page</h1>" in response.text
+
+
+def test_index_disabled():
+    custom_config = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[dummy_proxy_environment],
+        index_enabled=False,
+    )
+
+    with patch("powerdns_api_proxy.proxy.config", custom_config):
+        response = client.get("/")
+        assert response.status_code == 404
+
+
 def test_api_root(fixture_patch_dummy_config):
     answer = client.get("/api", headers={"X-API-Key": dummy_proxy_environment_token})
     data = answer.json()
