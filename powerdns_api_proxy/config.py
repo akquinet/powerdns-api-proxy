@@ -155,7 +155,7 @@ def check_rrset_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
     if zone.all_records:
         return True
 
-    if not rrset["name"].rstrip(".").endswith(zone.name.rstrip(".")):
+    if not zone.regex and not rrset["name"].rstrip(".").endswith(zone.name.rstrip(".")):
         logger.debug("RRSET not allowed, because zone does not match")
         return False
 
