@@ -2,11 +2,15 @@ FROM docker.io/python:3.14.1-slim@sha256:b823ded4377ebb5ff1af5926702df2284e53cec
 
 WORKDIR /app
 
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt /app
 ENV PATH=/venv/bin:$PATH
 RUN : \
-	&& python3 -m venv /venv \
-	&& pip --no-cache-dir install -r requirements.txt
+    && python3 -m venv /venv \
+    && pip --no-cache-dir install -r requirements.txt
 
 COPY . /app
 
@@ -18,9 +22,9 @@ ENV PYTHONUNBUFFERED=1
 
 # Creates a non-root user with an explicit UID and adds permission to access the /app folder
 RUN : \
-	&& adduser -u 1000 --disabled-password --gecos "" appuser \
-	&& chown -R appuser /app && chmod -R 0750 /app
+    && adduser -u 1000 --disabled-password --gecos "" appuser \
+    && chown -R appuser /app && chmod -R 0750 /app
 USER appuser
 
 
-CMD ["uvicorn", "--host", "*", "--port", "8000", "powerdns_api_proxy.proxy:app"]
+CMD ["python", "-m", "powerdns_api_proxy"]

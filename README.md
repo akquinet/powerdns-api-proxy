@@ -15,7 +15,12 @@ Within a zone, the token can be limited to one or more records.
 Containers are available under [Packages](https://github.com/akquinet/powerdns-api-proxy/pkgs/container/powerdns-api-proxy).
 
 ```bash
-docker run -v config:/config -e PROXY_CONFIG_PATH=/config/config.yaml -e LOG_LEVEL=WARNING --name powerdns-api-proxy ghcr.io/akquinet/powerdns-api-proxy:latest
+docker run -v config:/config \
+  -e PROXY_CONFIG_PATH=/config/config.yaml \
+  -e LOG_LEVEL=INFO \
+  -e LOG_FORMAT=json \
+  --name powerdns-api-proxy \
+  ghcr.io/akquinet/powerdns-api-proxy:latest
 ```
 
 ### Authentication
@@ -312,6 +317,78 @@ index_html: |
       <p>Custom content here</p>
     </body>
   </html>
+```
+
+## Logging
+
+### Environment Variables
+
+```bash
+LOG_LEVEL=DEBUG       # Optional: DEBUG, INFO, WARNING, ERROR (default: DEBUG)
+LOG_FORMAT=json       # Optional: "text" (default) or "json" for structured logging
+LISTEN_HOST=0.0.0.0   # Optional: Host to bind to (default: 0.0.0.0)
+LISTEN_PORT=8000      # Optional: Port to listen on (default: 8000)
+```
+
+When `LOG_FORMAT=json` is set, all logs (application and uvicorn access logs) will be output in JSON format.
+
+Set `AUDIT_LOGGING=false` to disable automatic audit logging of API requests.
+
+### Audit Logging
+
+All API operations (GET, POST, PUT, PATCH, DELETE) are automatically logged to stderr with structured data via middleware.
+
+This includes both successful operations and forbidden attempts (HTTP 403).
+
+Each audit log entry contains:
+
+* `timestamp`: ISO 8601 timestamp
+* `level`: Log level (INFO)
+* `event_type`: "audit" for easy filtering
+* `audit`: Structured audit data object containing:
+  * `environment`: Name of the authenticated environment/token
+  * `method`: HTTP method (GET, POST, PUT, PATCH, DELETE)
+  * `path`: Resource path that was accessed/modified
+  * `status_code`: HTTP response status code
+  * `payload`: Request payload (optional, for write operations; omitted for sensitive endpoints like `/cryptokeys` and `/tsigkeys`)
+  * `query_params`: Query parameters (optional, for GET requests)
+
+#### Text Format (default)
+
+```
+INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 PATCH /zones/example.com 204 payload={'rrsets': []}
+INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 GET /zones 200 query_params={'rrsets': 'true'}
+INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 DELETE /zones/test.com 403
+```
+
+#### JSON Format (set LOG_FORMAT=json)
+
+```json
+{"timestamp": "2026-03-26T11:39:29", "level": "INFO", "event_type": "audit", "audit": {"environment": "Test1", "method": "PATCH", "path": "/zones/example.com", "status_code": 204, "payload": {"rrsets": [...]}}}
+```
+
+#### Analyzing Audit Logs
+
+With JSON format enabled, you can use `jq` to filter and analyze audit logs:
+
+```bash
+# Filter only audit events
+docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit")'
+
+# Filter by environment
+docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit" and .audit.environment == "Test1")'
+
+# Filter by HTTP method
+docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit" and .audit.method == "PATCH")'
+
+# Filter by zone
+docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit" and (.audit.path | contains("/zones/example.com")))'
+
+# Extract only key audit fields
+docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit") | {timestamp, environment: .audit.environment, method: .audit.method, path: .audit.path, status: .audit.status_code}'
+
+# Show failed attempts (403)
+docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit" and .audit.status_code == 403)'
 ```
 
 ## Development

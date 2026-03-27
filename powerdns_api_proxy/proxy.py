@@ -3,7 +3,14 @@ from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Header, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Header,
+    Request,
+    Response,
+)
 from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -29,6 +36,7 @@ from powerdns_api_proxy.exceptions import (
     UpstreamException,
 )
 from powerdns_api_proxy.logging import logger
+from powerdns_api_proxy.middleware import AuditMiddleware
 from powerdns_api_proxy.metrics import http_requests_total_environment
 from powerdns_api_proxy.models import (
     ResponseAllowed,
@@ -72,6 +80,8 @@ if not config.api_docs_enabled:
         redoc_url=None,
         openapi_url=None,
     )
+
+app.add_middleware(AuditMiddleware)
 
 if config.metrics_enabled:
     instrumentator = Instrumentator(

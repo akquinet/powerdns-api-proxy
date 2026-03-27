@@ -35,7 +35,9 @@ def load_config(path: Optional[Path] = None) -> ProxyConfig:
     with open(path) as f:
         data = safe_load(f)
 
-    return ProxyConfig(**data)
+    config = ProxyConfig(**data)
+
+    return config
 
 
 def token_defined(config: ProxyConfig, token: str) -> bool:
