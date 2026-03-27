@@ -5,7 +5,7 @@ from os import getenv
 from sys import stderr
 
 LOG_LEVEL = getenv("LOG_LEVEL") or "DEBUG"
-LOG_FORMAT = getenv("LOG_FORMAT", "text")  # text or json
+LOG_FORMAT = getenv("LOG_FORMAT", "text").lower()  # text or json
 
 logging_format = (
     "%(levelname)s - %(asctime)s - %(name)s - "

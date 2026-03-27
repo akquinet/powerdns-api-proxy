@@ -1,6 +1,6 @@
 import os
 
-LOG_FORMAT = os.getenv("LOG_FORMAT", "text")
+LOG_FORMAT = os.getenv("LOG_FORMAT", "text").lower()
 
 if LOG_FORMAT == "json":
     LOGGING_CONFIG = {
