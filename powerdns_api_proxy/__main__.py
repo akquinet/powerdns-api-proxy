@@ -5,7 +5,7 @@ from powerdns_api_proxy.uvicorn_config import LOGGING_CONFIG
 
 
 def main() -> int:
-    host = os.getenv("LISTEN_HOST", "0.0.0.0")
+    host = os.getenv("LISTEN_HOST", "*")
     port = int(os.getenv("LISTEN_PORT", "8000"))
     reload = "--reload" in sys.argv
 
