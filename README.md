@@ -324,11 +324,11 @@ index_html: |
 ### Environment Variables
 
 ```bash
-LOG_LEVEL=DEBUG       # Optional: DEBUG, INFO, WARNING, ERROR (default: DEBUG)
-LOG_FORMAT=json       # Optional: "text" (default) or "json" for structured logging
-LOG_FILE=/var/log/app.log  # Optional: Enable file logging to specified path (default: disabled, logs to stderr only)
-LISTEN_HOST=0.0.0.0   # Optional: Host to bind to (default: *)
-LISTEN_PORT=8000      # Optional: Port to listen on (default: 8000)
+LOG_LEVEL=DEBUG            # Optional: DEBUG, INFO, WARNING, ERROR (default: DEBUG)
+LOG_FORMAT=json            # Optional: "text" (default) or "json" for structured logging
+LOG_FILE=/var/log/app.log  # Optional: Log file path (default: "log"), set to "false" to disable file logging
+LISTEN_HOST=0.0.0.0        # Optional: Host to bind to (default: *)
+LISTEN_PORT=8000           # Optional: Port to listen on (default: 8000)
 ```
 
 When `LOG_FORMAT=json` is set, all logs (application and uvicorn access logs) will be output in JSON format.
