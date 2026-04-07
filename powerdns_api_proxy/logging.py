@@ -96,14 +96,16 @@ default_stream_handler = logging.StreamHandler(stderr)
 default_stream_handler.setLevel(LOG_LEVEL)
 default_stream_handler.setFormatter(default_formatter)
 
-file_handler = logging.handlers.RotatingFileHandler(
-    filename="log", maxBytes=1000**2 * 100, backupCount=5
-)
-file_handler.setLevel("DEBUG")
-file_handler.setFormatter(default_formatter)
-
 logger: AuditLogger = logging.getLogger("powerdns_api_proxy")  # type: ignore
 logger.addHandler(default_stream_handler)
-logger.addHandler(file_handler)
+
+LOG_FILE = getenv("LOG_FILE")
+if LOG_FILE:
+    file_handler = logging.handlers.RotatingFileHandler(
+        filename=LOG_FILE, maxBytes=1000**2 * 100, backupCount=5
+    )
+    file_handler.setLevel("DEBUG")
+    file_handler.setFormatter(default_formatter)
+    logger.addHandler(file_handler)
 
 logger.setLevel("DEBUG")

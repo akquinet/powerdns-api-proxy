@@ -326,6 +326,7 @@ index_html: |
 ```bash
 LOG_LEVEL=DEBUG       # Optional: DEBUG, INFO, WARNING, ERROR (default: DEBUG)
 LOG_FORMAT=json       # Optional: "text" (default) or "json" for structured logging
+LOG_FILE=/var/log/app.log  # Optional: Enable file logging to specified path (default: disabled, logs to stderr only)
 LISTEN_HOST=0.0.0.0   # Optional: Host to bind to (default: *)
 LISTEN_PORT=8000      # Optional: Port to listen on (default: 8000)
 ```
