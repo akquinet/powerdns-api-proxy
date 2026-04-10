@@ -9,6 +9,8 @@ from powerdns_api_proxy.config import (
     check_pdns_search_allowed,
     check_pdns_cryptokeys_allowed,
     check_pdns_tsigkeys_allowed,
+    check_pdns_config_allowed,
+    check_pdns_statistics_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
     check_rrset_allowed,
@@ -682,6 +684,30 @@ def test_tsigkeys_allowed_globally():
     environment = deepcopy(dummy_proxy_environment)
     environment.global_tsigkeys = True
     assert check_pdns_tsigkeys_allowed(environment) is True
+
+
+def test_config_not_allowed():
+    environment = deepcopy(dummy_proxy_environment)
+    environment.global_config = False
+    assert check_pdns_config_allowed(environment) is False
+
+
+def test_config_allowed_globally():
+    environment = deepcopy(dummy_proxy_environment)
+    environment.global_config = True
+    assert check_pdns_config_allowed(environment) is True
+
+
+def test_statistics_not_allowed():
+    environment = deepcopy(dummy_proxy_environment)
+    environment.global_statistics = False
+    assert check_pdns_statistics_allowed(environment) is False
+
+
+def test_statistics_allowed_globally():
+    environment = deepcopy(dummy_proxy_environment)
+    environment.global_statistics = True
+    assert check_pdns_statistics_allowed(environment) is True
 
 
 def test_global_read_only_without_zones():

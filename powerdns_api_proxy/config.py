@@ -212,6 +212,14 @@ def check_pdns_tsigkeys_allowed(environment: ProxyConfigEnvironment) -> bool:
     return False
 
 
+def check_pdns_config_allowed(environment: ProxyConfigEnvironment) -> bool:
+    return environment.global_config
+
+
+def check_pdns_statistics_allowed(environment: ProxyConfigEnvironment) -> bool:
+    return environment.global_statistics
+
+
 def ensure_rrsets_request_allowed(zone: ProxyConfigZone, request: RRSETRequest) -> bool:
     """Raises HTTPException if RRSET is not allowed"""
     if zone.read_only:
