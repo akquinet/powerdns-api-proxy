@@ -254,6 +254,43 @@ environments:
           cryptokeys: true
 ```
 
+#### Global Config
+
+Global configuration access can be defined under an `environment`.
+
+For this the `environment` must have the option `global_config: true`.
+
+This allows the token to read PowerDNS server configuration via:
+
+- `GET /api/v1/servers/:server_id/config` - Returns all ConfigSettings
+- `GET /api/v1/servers/:server_id/config/:config_setting_name` - Retrieve a single setting
+
+```yaml
+...
+environments:
+    - name: "Test1"
+      global_config: true
+```
+
+#### Global Statistics
+
+Global statistics access can be defined under an `environment`.
+
+For this the `environment` must have the option `global_statistics: true`.
+
+This allows the token to read PowerDNS server statistics via:
+
+- `GET /api/v1/servers/:server_id/statistics`
+
+<https://doc.powerdns.com/authoritative/http-api/statistics.html>
+
+```yaml
+...
+environments:
+    - name: "Test1"
+      global_statistics: true
+```
+
 ### Metrics of the proxy
 
 The proxy exposes metrics on the `/metrics` endpoint.

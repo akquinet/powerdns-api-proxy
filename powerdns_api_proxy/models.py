@@ -60,6 +60,8 @@ class ProxyConfigEnvironment(BaseModel):
     global_search: bool = False
     global_cryptokeys: bool = False
     global_tsigkeys: bool = False
+    global_config: bool = False
+    global_statistics: bool = False
     _zones_lookup: dict[str, ProxyConfigZone] = {}
     metrics_proxy: bool = False
 

@@ -19,6 +19,8 @@ from powerdns_api_proxy.config import (
     check_pdns_search_allowed,
     check_pdns_cryptokeys_allowed,
     check_pdns_tsigkeys_allowed,
+    check_pdns_config_allowed,
+    check_pdns_statistics_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
     dependency_check_token_defined,
@@ -216,31 +218,64 @@ async def get_server(server_id: str):
 
 
 @router_pdns.get(
-    "/servers/{server_id}/configuration",
+    "/servers/{server_id}/config",
 )
-async def get_configuration(server_id: str):
+async def get_configuration(server_id: str, X_API_Key: str = Header()):
     """
     Retrieve a list of configuration items for the server.
-    Currently returns empty, as we don't want to expose the global backend configuration.
+
+    Requires global_config permission.
     """
-    _ = server_id
-    raise RessourceNotAllowedException()
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_config_allowed(environment):
+        raise RessourceNotAllowedException()
+
+    resp = await pdns.get(f"/api/v1/servers/{server_id}/config")
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
+
+
+@router_pdns.get(
+    "/servers/{server_id}/config/{config_setting_name}",
+)
+async def get_configuration_setting(
+    server_id: str, config_setting_name: str, X_API_Key: str = Header()
+):
+    """
+    Retrieve a single configuration setting.
+
+    Requires global_config permission.
+    """
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_config_allowed(environment):
+        raise RessourceNotAllowedException()
+
+    resp = await pdns.get(f"/api/v1/servers/{server_id}/config/{config_setting_name}")
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.get(
     "/servers/{server_id}/statistics",
 )
-async def get_statistics(
-    server_id: str,
-):
+async def get_statistics(server_id: str, X_API_Key: str = Header()):
     """
     Retrieve a list of statistics about the server.
-    Currently returns empty, as we don't want to expose the global backend statistics.
+
+    Requires global_statistics permission.
 
     <https://doc.powerdns.com/authoritative/http-api/statistics.html#get--servers-server_id-statistics>
     """
-    _ = server_id
-    raise RessourceNotAllowedException()
+    environment = get_environment_for_token(config, X_API_Key)
+    if not check_pdns_statistics_allowed(environment):
+        raise RessourceNotAllowedException()
+
+    resp = await pdns.get(f"/api/v1/servers/{server_id}/statistics")
+    pdns_response = await handle_pdns_response(resp)
+    status_code = pdns_response.raise_for_error()
+    return JSONResponse(content=pdns_response.data, status_code=status_code)
 
 
 @router_pdns.get(
