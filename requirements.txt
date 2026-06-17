@@ -1,4 +1,4 @@
-aiohttp==3.14.0
+aiohttp==3.14.1
 fastapi==0.128.0
 httpx
 prometheus-fastapi-instrumentator==7.1.0
