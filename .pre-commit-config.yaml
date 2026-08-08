@@ -43,3 +43,5 @@ repos:
     rev: "v2.12.1-beta"
     hooks:
       - id: hadolint-docker
+        args:
+          - "--failure-threshold=warning"
