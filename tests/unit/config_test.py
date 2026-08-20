@@ -368,6 +368,21 @@ def test_check_rrset_allowed_regex_zone_with_multiple_regex_records():
     assert not check_rrset_allowed(zone, rrset3)
 
 
+def test_check_rrset_not_allowed_suffix_without_dot_boundary():
+    """Suffix match without dot boundary must be rejected"""
+    zone = ProxyConfigZone(name="example.com.", records=["allowed.example.com."])
+
+    evil_rrset: RRSET = {
+        "name": "evilexample.com.",
+        "type": "TXT",
+        "changetype": "REPLACE",
+        "ttl": 3600,
+        "records": [],
+        "comments": [],
+    }
+    assert not check_rrset_allowed(zone, evil_rrset)
+
+
 def test_check_rrsets_request_allowed_no_raise():
     zone = ProxyConfigZone(
         name="test-zone.example.com.",
