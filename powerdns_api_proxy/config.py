@@ -21,7 +21,11 @@ from powerdns_api_proxy.models import (
     ProxyConfigZone,
     RRSETRequest,
 )
-from powerdns_api_proxy.utils import check_record_in_regex, check_zones_equal
+from powerdns_api_proxy.utils import (
+    check_record_in_regex,
+    check_subzone,
+    check_zones_equal,
+)
 
 
 @lru_cache(maxsize=1)
@@ -157,7 +161,11 @@ def check_rrset_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
     if zone.all_records:
         return True
 
-    if not zone.regex and not rrset["name"].rstrip(".").endswith(zone.name.rstrip(".")):
+    if (
+        not zone.regex
+        and not check_zones_equal(rrset["name"], zone.name)
+        and not check_subzone(rrset["name"], zone.name)
+    ):
         logger.debug("RRSET not allowed, because zone does not match")
         return False
 
