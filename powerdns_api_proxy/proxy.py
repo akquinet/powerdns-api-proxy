@@ -31,6 +31,7 @@ from powerdns_api_proxy.config import (
     load_config,
 )
 from powerdns_api_proxy.exceptions import (
+    RecordNotAllowedException,
     RessourceNotAllowedException,
     SearchNotAllowedException,
     ZoneAdminNotAllowedException,
@@ -323,6 +324,17 @@ async def create_zone(request: Request, server_id: str, X_API_Key: str = Header(
         raise ZoneNotAllowedException()
     if not check_pdns_zone_admin(environment, payload["name"]):
         raise ZoneAdminNotAllowedException()
+    zone = environment.get_zone_if_allowed(payload["name"])
+    if payload.get("zone") and (zone.read_only or not zone.all_records):
+        # A BIND style zonefile can contain arbitrary records, which cannot be
+        # validated against the record restrictions of the environment.
+        logger.info(
+            f'Zonefile in zone creation not allowed for zone "{zone.name}", '
+            "because the token does not have write access to all records"
+        )
+        raise RecordNotAllowedException()
+    if payload.get("rrsets"):
+        ensure_rrsets_request_allowed(zone, payload)
     resp = await pdns.post(f"/api/v1/servers/{server_id}/zones", payload)
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()

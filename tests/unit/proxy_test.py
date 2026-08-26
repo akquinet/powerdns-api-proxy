@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 from typing import Generator
 from unittest.mock import AsyncMock, patch
@@ -193,3 +195,235 @@ def test_api_delete_wrong_token(path, fixture_patch_dummy_config, fixture_patch_
 @pytest.mark.parametrize("path", delete_routes)
 def test_api_delete_missing_token(path, fixture_patch_dummy_config, fixture_patch_pdns):
     _token_missing_request(client, "DELETE", path)
+
+
+def _sha512(token: str) -> str:
+    return hashlib.sha512(token.encode()).hexdigest()
+
+
+class _FakePdnsResponse:
+    """Minimal stand-in for an aiohttp.ClientResponse, as consumed by
+    powerdns_api_proxy.pdns.handle_pdns_response."""
+
+    def __init__(self, status_code: int, data):
+        self.status = status_code
+        self.url = "http://pdns.example/"
+        self._data = data
+
+    async def text(self):
+        return json.dumps(self._data)
+
+
+def _rrset_payload(zone_name: str, record_name: str) -> dict:
+    return {
+        "name": zone_name,
+        "kind": "Native",
+        "rrsets": [
+            {
+                "name": record_name,
+                "type": "TXT",
+                "ttl": 3600,
+                "changetype": "REPLACE",
+                "records": [{"content": '"test"', "disabled": False}],
+            }
+        ],
+    }
+
+
+def test_create_zone_with_disallowed_rrset_forbidden():
+    """
+    A token with admin rights on a zone but a restricted `records` list must
+    not be able to smuggle unrestricted rrsets into the zone via the initial
+    zone-creation payload (PowerDNS accepts an `rrsets` array on zone
+    creation, bypassing the per-record write scope enforced on PATCH).
+    """
+    token = "restricted-token-for-zone-creation-test"
+    zone = ProxyConfigZone(
+        name="restricted.example.com.",
+        admin=True,
+        records=["allowed.restricted.example.com."],
+    )
+    environment = ProxyConfigEnvironment(
+        name="Restricted",
+        zones=[zone],
+        token_sha512=_sha512(token),
+    )
+    restricted_config = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+    payload = _rrset_payload(
+        "restricted.example.com.", "notallowed.restricted.example.com."
+    )
+    post_mock = AsyncMock()
+
+    with (
+        patch("powerdns_api_proxy.config.load_config", return_value=restricted_config),
+        patch("powerdns_api_proxy.proxy.config", restricted_config),
+        patch("powerdns_api_proxy.proxy.pdns.post", post_mock),
+    ):
+        answer = client.post(
+            "/api/v1/servers/localhost/zones",
+            json=payload,
+            headers={"X-API-Key": token},
+        )
+    assert answer.status_code == 403
+    assert "notallowed.restricted.example.com." in answer.json()["error"]
+    post_mock.assert_not_called()
+
+
+def test_create_zone_with_allowed_rrset_succeeds():
+    token = "restricted-token-for-zone-creation-test-2"
+    zone = ProxyConfigZone(
+        name="restricted2.example.com.",
+        admin=True,
+        records=["allowed.restricted2.example.com."],
+    )
+    environment = ProxyConfigEnvironment(
+        name="Restricted2",
+        zones=[zone],
+        token_sha512=_sha512(token),
+    )
+    restricted_config = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+    payload = _rrset_payload(
+        "restricted2.example.com.", "allowed.restricted2.example.com."
+    )
+    fake_response = _FakePdnsResponse(201, payload)
+
+    with (
+        patch("powerdns_api_proxy.config.load_config", return_value=restricted_config),
+        patch("powerdns_api_proxy.proxy.config", restricted_config),
+        patch(
+            "powerdns_api_proxy.proxy.pdns.post", AsyncMock(return_value=fake_response)
+        ),
+    ):
+        answer = client.post(
+            "/api/v1/servers/localhost/zones",
+            json=payload,
+            headers={"X-API-Key": token},
+        )
+    assert answer.status_code == 201
+
+
+def test_create_zone_with_zonefile_forbidden_for_record_restricted_token():
+    """
+    PowerDNS also accepts a BIND style zonefile in the `zone` field on zone
+    creation. Its contents cannot be validated against the record
+    restrictions of the token, so it must be rejected for tokens that do not
+    have write access to all records of the zone.
+    """
+    token = "restricted-token-for-zone-creation-test-4"
+    zone = ProxyConfigZone(
+        name="restricted4.example.com.",
+        admin=True,
+        records=["allowed.restricted4.example.com."],
+    )
+    environment = ProxyConfigEnvironment(
+        name="Restricted4",
+        zones=[zone],
+        token_sha512=_sha512(token),
+    )
+    restricted_config = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+    payload = {
+        "name": "restricted4.example.com.",
+        "kind": "Native",
+        "zone": "evil.restricted4.example.com. 3600 IN A 192.0.2.1\n",
+    }
+    post_mock = AsyncMock()
+
+    with (
+        patch("powerdns_api_proxy.config.load_config", return_value=restricted_config),
+        patch("powerdns_api_proxy.proxy.config", restricted_config),
+        patch("powerdns_api_proxy.proxy.pdns.post", post_mock),
+    ):
+        answer = client.post(
+            "/api/v1/servers/localhost/zones",
+            json=payload,
+            headers={"X-API-Key": token},
+        )
+    assert answer.status_code == 403
+    post_mock.assert_not_called()
+
+
+def test_create_zone_with_zonefile_allowed_for_unrestricted_token():
+    """
+    A token with write access to all records of the zone may still create the
+    zone from a zonefile.
+    """
+    token = "restricted-token-for-zone-creation-test-5"
+    zone = ProxyConfigZone(name="restricted5.example.com.", admin=True)
+    assert zone.all_records
+    environment = ProxyConfigEnvironment(
+        name="Restricted5",
+        zones=[zone],
+        token_sha512=_sha512(token),
+    )
+    restricted_config = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+    payload = {
+        "name": "restricted5.example.com.",
+        "kind": "Native",
+        "zone": "www.restricted5.example.com. 3600 IN A 192.0.2.1\n",
+    }
+    fake_response = _FakePdnsResponse(201, payload)
+
+    with (
+        patch("powerdns_api_proxy.config.load_config", return_value=restricted_config),
+        patch("powerdns_api_proxy.proxy.config", restricted_config),
+        patch(
+            "powerdns_api_proxy.proxy.pdns.post", AsyncMock(return_value=fake_response)
+        ),
+    ):
+        answer = client.post(
+            "/api/v1/servers/localhost/zones",
+            json=payload,
+            headers={"X-API-Key": token},
+        )
+    assert answer.status_code == 201
+
+
+def test_create_zone_without_rrsets_succeeds():
+    token = "restricted-token-for-zone-creation-test-3"
+    zone = ProxyConfigZone(
+        name="restricted3.example.com.",
+        admin=True,
+        records=["allowed.restricted3.example.com."],
+    )
+    environment = ProxyConfigEnvironment(
+        name="Restricted3",
+        zones=[zone],
+        token_sha512=_sha512(token),
+    )
+    restricted_config = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+    payload = {"name": "restricted3.example.com.", "kind": "Native"}
+    fake_response = _FakePdnsResponse(201, payload)
+
+    with (
+        patch("powerdns_api_proxy.config.load_config", return_value=restricted_config),
+        patch("powerdns_api_proxy.proxy.config", restricted_config),
+        patch(
+            "powerdns_api_proxy.proxy.pdns.post", AsyncMock(return_value=fake_response)
+        ),
+    ):
+        answer = client.post(
+            "/api/v1/servers/localhost/zones",
+            json=payload,
+            headers={"X-API-Key": token},
+        )
+    assert answer.status_code == 201
