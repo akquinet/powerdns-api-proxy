@@ -1,5 +1,7 @@
 # PowerDNS-API-Proxy
 
+[![GitHub Release](https://img.shields.io/github/v/release/akquinet/powerdns-api-proxy)](https://github.com/akquinet/powerdns-api-proxy/releases)
+
 ## Description
 
 The proxy can be used between a PowerDNS API and a client.
@@ -317,8 +319,8 @@ environments:
 
 When `metrics_require_auth` is enabled, basic auth needs to be used.
 
-* username: name of the environment
-* password: token
+- username: name of the environment
+- password: token
 
 #### Metrics
 
@@ -380,16 +382,16 @@ This includes both successful operations and forbidden attempts (HTTP 403).
 
 Each audit log entry contains:
 
-* `timestamp`: ISO 8601 timestamp
-* `level`: Log level (INFO)
-* `event_type`: "audit" for easy filtering
-* `audit`: Structured audit data object containing:
-  * `environment`: Name of the authenticated environment/token
-  * `method`: HTTP method (GET, POST, PUT, PATCH, DELETE)
-  * `path`: Resource path that was accessed/modified
-  * `status_code`: HTTP response status code
-  * `payload`: Request payload (optional, for write operations; omitted for sensitive endpoints like `/cryptokeys` and `/tsigkeys`)
-  * `query_params`: Query parameters (optional, for GET requests)
+- `timestamp`: ISO 8601 timestamp
+- `level`: Log level (INFO)
+- `event_type`: "audit" for easy filtering
+- `audit`: Structured audit data object containing:
+  - `environment`: Name of the authenticated environment/token
+  - `method`: HTTP method (GET, POST, PUT, PATCH, DELETE)
+  - `path`: Resource path that was accessed/modified
+  - `status_code`: HTTP response status code
+  - `payload`: Request payload (optional, for write operations; omitted for sensitive endpoints like `/cryptokeys` and `/tsigkeys`)
+  - `query_params`: Query parameters (optional, for GET requests)
 
 #### Text Format (default)
 
