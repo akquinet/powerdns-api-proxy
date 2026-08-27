@@ -1,7 +1,5 @@
 # PowerDNS-API-Proxy
 
-[![GitHub Release](https://img.shields.io/github/v/release/akquinet/powerdns-api-proxy)](https://github.com/akquinet/powerdns-api-proxy/releases)
-
 ## Description
 
 The proxy can be used between a PowerDNS API and a client.
