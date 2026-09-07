@@ -366,11 +366,19 @@ LOG_FORMAT=json            # Optional: "text" (default) or "json" for structured
 LOG_FILE=/var/log/app.log  # Optional: Log file path (default: "log"), set to "false" to disable file logging
 LISTEN_HOST=0.0.0.0        # Optional: Host to bind to (default: *)
 LISTEN_PORT=8000           # Optional: Port to listen on (default: 8000)
+AUDIT_LOGGING=true         # Optional: set to "false" to disable audit logging (default: true)
+AUDIT_LOG_CLIENT_IP=true   # Optional: set to "false" to omit client IPs from audit logs (default: true)
+FORWARDED_ALLOW_IPS=127.0.0.1  # Optional: peers trusted to set X-Forwarded-For (default: 127.0.0.1)
 ```
 
 When `LOG_FORMAT=json` is set, all logs (application and uvicorn access logs) will be output in JSON format.
 
 Set `AUDIT_LOGGING=false` to disable automatic audit logging of API requests.
+
+Set `AUDIT_LOG_CLIENT_IP=false` to omit client IP addresses from audit logs while
+keeping the rest of the audit trail. Note that this does not affect the uvicorn
+access log, which logs the client address independently; to suppress IPs entirely,
+raise the log level of the `uvicorn.access` logger as well.
 
 ### Audit Logging
 
@@ -385,6 +393,7 @@ Each audit log entry contains:
 - `event_type`: "audit" for easy filtering
 - `audit`: Structured audit data object containing:
   - `environment`: Name of the authenticated environment/token
+  - `client_ip`: IP address of the client that made the request (omitted if `AUDIT_LOG_CLIENT_IP=false`, or if the peer address is unavailable). See [Running Behind a Reverse Proxy](#running-behind-a-reverse-proxy-tls-sidecar).
   - `method`: HTTP method (GET, POST, PUT, PATCH, DELETE)
   - `path`: Resource path that was accessed/modified
   - `status_code`: HTTP response status code
@@ -394,15 +403,15 @@ Each audit log entry contains:
 #### Text Format (default)
 
 ```
-INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 PATCH /zones/example.com 204 payload={'rrsets': []}
-INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 GET /zones 200 query_params={'rrsets': 'true'}
-INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 DELETE /zones/test.com 403
+INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 203.0.113.9 PATCH /zones/example.com 204 payload={'rrsets': []}
+INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 203.0.113.9 GET /zones 200 query_params={'rrsets': 'true'}
+INFO - 2026-03-26 12:03:21,323 - powerdns_api_proxy - proxy.py - audit - 70 - AUDIT: Test1 203.0.113.9 DELETE /zones/test.com 403
 ```
 
 #### JSON Format (set LOG_FORMAT=json)
 
 ```json
-{"timestamp": "2026-03-26T11:39:29", "level": "INFO", "event_type": "audit", "audit": {"environment": "Test1", "method": "PATCH", "path": "/zones/example.com", "status_code": 204, "payload": {"rrsets": [...]}}}
+{"timestamp": "2026-03-26T11:39:29", "level": "INFO", "event_type": "audit", "audit": {"environment": "Test1", "client_ip": "203.0.113.9", "method": "PATCH", "path": "/zones/example.com", "status_code": 204, "payload": {"rrsets": [...]}}}
 ```
 
 #### Analyzing Audit Logs
@@ -427,7 +436,59 @@ docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit") | {time
 
 # Show failed attempts (403)
 docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit" and .audit.status_code == 403)'
+
+# Filter by client IP
+docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit" and .audit.client_ip == "203.0.113.9")'
+
+# Rank clients by number of write operations
+docker logs powerdns-api-proxy 2>&1 | jq -r 'select(.event_type == "audit" and (.audit.method != "GET")) | .audit.client_ip' | sort | uniq -c | sort -rn
 ```
+
+### Running Behind a Reverse Proxy (TLS Sidecar)
+
+`X-Forwarded-For` is trusted only when it comes from a peer listed in
+`FORWARDED_ALLOW_IPS` (default: `127.0.0.1`). When it is trusted, the address it
+carries becomes the `client_ip` in the audit log and the client address in the
+uvicorn access log. When it is not trusted, the header is ignored and the real
+TCP peer is logged instead.
+
+A TLS-terminating nginx sidecar that shares the pod's network namespace connects
+over loopback, so **the default needs no configuration**. Set
+`FORWARDED_ALLOW_IPS` only when the proxy sees a non-loopback peer:
+
+```bash
+FORWARDED_ALLOW_IPS=10.244.0.0/16      # CIDR ranges are supported
+FORWARDED_ALLOW_IPS=10.0.0.7,10.0.0.8  # or a comma-separated list of hosts
+```
+
+Avoid `FORWARDED_ALLOW_IPS=*`. It trusts every peer and takes the left-most
+`X-Forwarded-For` entry verbatim, which lets any client forge the `client_ip`
+recorded against its own requests.
+
+Minimal nginx configuration:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Note that `$proxy_add_x_forwarded_for` *appends* to whatever `X-Forwarded-For`
+the client sent. That is correct for an nginx sitting behind another proxy, but
+if this nginx is the edge that clients reach directly, a client can prepend a
+forged hop. Overwrite the header at the edge instead:
+
+```nginx
+proxy_set_header X-Forwarded-For $remote_addr;
+```
+
+With several hops, list every intermediate proxy in `FORWARDED_ALLOW_IPS`. The
+chain is walked from right to left and the first untrusted entry is taken as the
+client, so a proxy missing from the list gets logged in place of the real
+client.
 
 ## Development
 
