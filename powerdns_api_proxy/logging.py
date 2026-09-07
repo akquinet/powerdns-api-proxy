@@ -52,6 +52,7 @@ class AuditLogger(logging.Logger):
         status_code: int,
         payload: dict | None = None,
         query_params: dict | None = None,
+        client_ip: str | None = None,
     ):
         """Log audit events with structured data"""
         # Skip payload logging for sensitive endpoints
@@ -60,8 +61,10 @@ class AuditLogger(logging.Logger):
         ):
             payload = None
 
-        audit_data = {
+        audit_data: dict[str, str | int | dict] = {
             "environment": environment,
+            # Reported next to the identity it belongs to
+            **({"client_ip": client_ip} if client_ip else {}),
             "method": method,
             "path": path,
             "status_code": status_code,
@@ -72,7 +75,8 @@ class AuditLogger(logging.Logger):
             audit_data["query_params"] = query_params
 
         # Build message with optional query_params/payload info
-        msg_parts = [f"AUDIT: {environment} {method} {path} {status_code}"]
+        identity = f"{environment} {client_ip}" if client_ip else environment
+        msg_parts = [f"AUDIT: {identity} {method} {path} {status_code}"]
         if query_params:
             msg_parts.append(f"query_params={query_params}")
         if payload is not None:
