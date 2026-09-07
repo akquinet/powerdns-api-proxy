@@ -134,3 +134,68 @@ def test_audit_log_skips_tsigkeys_payloads(caplog):
     record = caplog.records[0]
     assert record.message == "AUDIT: Test1 PUT /tsigkeys/key1 200"
     assert "payload" not in record.audit
+
+
+def test_audit_log_text_format_with_client_ip(caplog):
+    logger = logging.getLogger("test_audit_client_ip_text")
+    logger.setLevel(logging.INFO)
+    logger.__class__ = AuditLogger
+
+    with caplog.at_level(logging.INFO, logger="test_audit_client_ip_text"):
+        logger.audit("Test1", "DELETE", "/zones/test.com", 403, client_ip="203.0.113.9")
+
+    record = caplog.records[0]
+    assert record.message == "AUDIT: Test1 203.0.113.9 DELETE /zones/test.com 403"
+    assert record.audit["client_ip"] == "203.0.113.9"
+
+
+def test_audit_log_text_format_client_ip_precedes_optional_extras(caplog):
+    logger = logging.getLogger("test_audit_client_ip_extras")
+    logger.setLevel(logging.INFO)
+    logger.__class__ = AuditLogger
+
+    with caplog.at_level(logging.INFO, logger="test_audit_client_ip_extras"):
+        logger.audit(
+            "Test1",
+            "PATCH",
+            "/zones/example.com",
+            204,
+            {"rrsets": []},
+            client_ip="203.0.113.9",
+        )
+
+    record = caplog.records[0]
+    assert record.message == (
+        "AUDIT: Test1 203.0.113.9 PATCH /zones/example.com 204 payload={'rrsets': []}"
+    )
+
+
+def test_audit_log_json_format_with_client_ip(json_logger):
+    logger, stream = json_logger
+
+    logger.audit("Test1", "PATCH", "/zones/example.com", 204, client_ip="203.0.113.9")
+    log_data = json.loads(stream.getvalue())
+
+    assert log_data["audit"] == {
+        "environment": "Test1",
+        "client_ip": "203.0.113.9",
+        "method": "PATCH",
+        "path": "/zones/example.com",
+        "status_code": 204,
+    }
+    # client_ip is reported next to the identity it belongs to
+    assert list(log_data["audit"])[:2] == ["environment", "client_ip"]
+
+
+def test_audit_log_omits_client_ip_when_not_provided(caplog):
+    """Regression guard: existing callers and log parsers must be unaffected."""
+    logger = logging.getLogger("test_audit_client_ip_absent")
+    logger.setLevel(logging.INFO)
+    logger.__class__ = AuditLogger
+
+    with caplog.at_level(logging.INFO, logger="test_audit_client_ip_absent"):
+        logger.audit("Test1", "DELETE", "/zones/test.com", 403)
+
+    record = caplog.records[0]
+    assert record.message == "AUDIT: Test1 DELETE /zones/test.com 403"
+    assert "client_ip" not in record.audit
