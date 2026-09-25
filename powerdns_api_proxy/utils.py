@@ -1,5 +1,16 @@
 import re
 
+SENSITIVE_PATH_SEGMENTS = {"cryptokeys", "tsigkeys"}
+
+
+def is_sensitive_path(path: str) -> bool:
+    """Checks if path points at a cryptokey or tsigkey endpoint.
+
+    Matches on path segments rather than substrings, so a zone named
+    e.g. "tsigkeys.example.com" is not mistaken for the /tsigkeys endpoint.
+    """
+    return any(segment in SENSITIVE_PATH_SEGMENTS for segment in path.split("/"))
+
 
 def check_subzone(zone: str, main_zone: str) -> bool:
     """Checks if `zone` is a subzone of `main_zone` (or equal to it)."""
