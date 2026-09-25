@@ -4,6 +4,8 @@ import json
 from os import getenv
 from sys import stderr
 
+from powerdns_api_proxy.utils import is_sensitive_path
+
 LOG_LEVEL = getenv("LOG_LEVEL") or "DEBUG"
 LOG_FORMAT = getenv("LOG_FORMAT", "text").lower()  # text or json
 
@@ -55,9 +57,7 @@ class AuditLogger(logging.Logger):
     ):
         """Log audit events with structured data"""
         # Skip payload logging for sensitive endpoints
-        if payload is not None and any(
-            sensitive in path for sensitive in ["/cryptokeys", "/tsigkeys"]
-        ):
+        if payload is not None and is_sensitive_path(path):
             payload = None
 
         audit_data = {

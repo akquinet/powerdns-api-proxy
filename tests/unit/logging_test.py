@@ -134,3 +134,21 @@ def test_audit_log_skips_tsigkeys_payloads(caplog):
     record = caplog.records[0]
     assert record.message == "AUDIT: Test1 PUT /tsigkeys/key1 200"
     assert "payload" not in record.audit
+
+
+def test_audit_log_keeps_payload_for_zone_named_like_sensitive_endpoint(caplog):
+    logger = logging.getLogger("test_audit_zone_name_collision")
+    logger.setLevel(logging.INFO)
+    logger.__class__ = AuditLogger
+
+    with caplog.at_level(logging.INFO, logger="test_audit_zone_name_collision"):
+        logger.audit(
+            "Test1",
+            "PATCH",
+            "/zones/tsigkeys.example.com./rrsets",
+            200,
+            {"rrsets": []},
+        )
+
+    record = caplog.records[0]
+    assert "payload" in record.audit
