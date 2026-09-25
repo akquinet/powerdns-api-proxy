@@ -79,3 +79,15 @@ def test_other_paths_are_still_logged(caplog):
         )
     assert "test.example.com." in caplog.text
     assert "<redacted>" not in caplog.text
+
+
+def test_zone_named_like_sensitive_endpoint_is_still_logged(caplog):
+    """A zone whose name merely contains 'tsigkeys' must not be redacted"""
+    with caplog.at_level(logging.DEBUG, logger="powerdns_api_proxy"):
+        _run_request(
+            "/api/v1/servers/localhost/zones/tsigkeys.example.com./rrsets",
+            {"rrsets": [{"name": "test.tsigkeys.example.com."}]},
+            '{"name": "tsigkeys.example.com."}',
+        )
+    assert "test.tsigkeys.example.com." in caplog.text
+    assert "<redacted>" not in caplog.text
