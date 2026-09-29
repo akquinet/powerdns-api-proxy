@@ -42,6 +42,13 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         query_params = dict(request.query_params) if request.query_params else None
 
+        # Reflects X-Forwarded-For when uvicorn's proxy_headers trusts the
+        # immediate peer -- see FORWARDED_ALLOW_IPS in the README. request.client
+        # is None on transports that omit "client" from the ASGI scope.
+        client_ip = None
+        if os.getenv("AUDIT_LOG_CLIENT_IP", "true").lower() != "false":
+            client_ip = request.client.host if request.client else None
+
         path = request.url.path.replace("/api/v1/servers/localhost", "")
         status_code = 500
         try:
@@ -63,4 +70,5 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 status_code,
                 payload,
                 query_params,
+                client_ip,
             )
