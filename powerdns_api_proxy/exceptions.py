@@ -25,6 +25,18 @@ class RessourceNotAllowedException(HTTPException):
         self.detail = "Ressource not allowed"
 
 
+class InvalidPathParameterException(HTTPException):
+    def __init__(self, name: str):
+        self.status_code = 400
+        self.detail = f"Invalid value for path parameter {name}"
+
+
+class ServerNotFoundException(HTTPException):
+    def __init__(self):
+        self.status_code = 404
+        self.detail = "Not Found"
+
+
 class NotAuthorizedException(HTTPException):
     def __init__(self):
         self.status_code = 401

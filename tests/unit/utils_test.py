@@ -2,6 +2,7 @@ import pytest
 import yaml
 
 from powerdns_api_proxy.utils import (
+    check_path_param_safe,
     check_subzone,
     check_zone_in_regex,
     check_record_in_regex,
@@ -100,3 +101,50 @@ def test_regex_with_parsed_yaml():
         parsed = yaml.safe_load(f)
     regex_string = parsed["name"]
     assert check_zone_in_regex("customer.example.com.", regex_string)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "localhost",
+        "example.com.",
+        "sub.example.com",
+        "_acme.example.com.",
+        "*.example.com.",
+        "münchen.example.de.",
+        "北京.example.cn.",
+        "xn--mller-kva.de.",
+        "=2F.com.",
+        "=5Facme-challenge.example.com.",
+        "=2A.example.com.",
+        "=C3=BC.example.com.",
+        "=2E",
+    ],
+)
+def test_check_path_param_safe_true(value):
+    assert check_path_param_safe(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        ".",
+        "..",
+        "other.org.?.example.com.",
+        "other.org.#.example.com.",
+        "other.org./.example.com.",
+        "other.org.%3F.example.com.",
+        "other.org.\\.example.com.",
+        "other.org. .example.com.",
+        "other.org.\n.example.com.",
+        "other.org.\x7f.example.com.",
+        "a:b",
+        "e\u0301xample.com.",
+        "=2f.com.",
+        "=2",
+        "a=b",
+    ],
+)
+def test_check_path_param_safe_false(value):
+    assert not check_path_param_safe(value)
