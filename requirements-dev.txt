@@ -1,9 +1,9 @@
-black==26.3.1
+black==26.5.1
 flake8==7.3.0
 flake8-quotes==3.4.0
-mypy==1.19.1
-pre-commit==4.5.1
-pytest==9.0.3
-pytest-cov==7.0.0
+mypy==1.20.2
+pre-commit==4.6.2
+pytest==9.1.1
+pytest-cov==7.1.0
 python-powerdns==2.1.0
-requests==2.33.0
+requests==2.34.2
