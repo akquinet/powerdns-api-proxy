@@ -1,0 +1,26 @@
+[Unit]
+Description=PowerDNS API Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=powerdns-api-proxy
+Group=powerdns-api-proxy
+EnvironmentFile=/etc/powerdns-api-proxy/powerdns-api-proxy.env
+ExecStart=/opt/powerdns-api-proxy/venv/bin/python -m powerdns_api_proxy
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

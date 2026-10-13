@@ -12,7 +12,7 @@ Within a zone, the token can be limited to one or more records.
 
 ### Container
 
-Containers are available under [Packages](https://github.com/akquinet/powerdns-api-proxy/pkgs/container/powerdns-api-proxy).
+Containers are available under [Packages](https://github.com/brankomijuskovic/powerdns-api-proxy/pkgs/container/powerdns-api-proxy).
 
 ```bash
 docker run -v config:/config \
@@ -20,8 +20,24 @@ docker run -v config:/config \
   -e LOG_LEVEL=INFO \
   -e LOG_FORMAT=json \
   --name powerdns-api-proxy \
-  ghcr.io/akquinet/powerdns-api-proxy:latest
+  ghcr.io/brankomijuskovic/powerdns-api-proxy:latest
 ```
+
+### rpm / deb
+
+Self-contained packages (bundled Python, no host Python needed) for Rocky Linux 8 and
+Debian 13 (x86_64/amd64) are attached to each
+[GitHub Release](https://github.com/brankomijuskovic/powerdns-api-proxy/releases).
+
+```bash
+dnf install ./powerdns-api-proxy-<version>.x86_64.rpm      # Rocky 8
+apt install ./powerdns-api-proxy_<version>_amd64.deb       # Debian 13
+```
+
+Edit `/etc/powerdns-api-proxy/config.yml` (and optionally
+`/etc/powerdns-api-proxy/powerdns-api-proxy.env`, which listens on `127.0.0.1:8000` by
+default), then `systemctl start powerdns-api-proxy`. The service is enabled but not
+started on install.
 
 ### Authentication
 
