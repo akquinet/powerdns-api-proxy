@@ -34,6 +34,7 @@ from powerdns_api_proxy.exceptions import (
     RecordNotAllowedException,
     RessourceNotAllowedException,
     SearchNotAllowedException,
+    ServerNotFoundException,
     ZoneAdminNotAllowedException,
     ZoneNotAllowedException,
     UpstreamException,
@@ -46,6 +47,7 @@ from powerdns_api_proxy.models import (
     ResponseZoneAllowed,
 )
 from powerdns_api_proxy.pdns import PDNSConnector, handle_pdns_response
+from powerdns_api_proxy.utils import check_path_param_safe
 
 if os.getenv("SENTRY_DSN"):
     import sentry_sdk
@@ -113,6 +115,23 @@ async def http_exception_handler(request, exc):
     return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
 
 
+def dependency_path_params_safe(request: Request):
+    """
+    Rejects path parameters that would change the upstream URL.
+
+    Path parameters are formatted into the upstream URL as is, so the value
+    that was checked against the environment must be the value PowerDNS sees.
+    PowerDNS only knows the server "localhost".
+    """
+    for name, value in request.path_params.items():
+        if not check_path_param_safe(str(value)):
+            logger.warning(f"Rejected path parameter {name}: {value!r}")
+            raise InvalidPathParameterException(name)
+    server_id = request.path_params.get("server_id")
+    if server_id is not None and server_id != "localhost":
+        raise ServerNotFoundException()
+
+
 router_proxy = APIRouter(
     prefix="/info",
     tags=["Information"],
@@ -125,7 +144,10 @@ router_health = APIRouter(
 router_pdns = APIRouter(
     prefix="/api/v1",
     tags=["PowerDNS Ressources"],
-    dependencies=[Depends(dependency_check_token_defined)],
+    dependencies=[
+        Depends(dependency_check_token_defined),
+        Depends(dependency_path_params_safe),
+    ],
 )
 
 
