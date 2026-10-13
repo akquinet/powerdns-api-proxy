@@ -1,0 +1,36 @@
+---
+name: powerdns-api-proxy
+arch: amd64
+platform: linux
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: Branko Mijuskovic <branko.mijuskovic@proton.ch>
+description: Proxy with per-token RBAC in front of the PowerDNS API
+homepage: https://github.com/brankomijuskovic/powerdns-api-proxy
+license: GPL-3.0-or-later
+
+contents:
+  - src: ./build/opt/powerdns-api-proxy
+    dst: /opt/powerdns-api-proxy
+    type: tree
+  - src: ./packaging/powerdns-api-proxy.service
+    dst: /usr/lib/systemd/system/powerdns-api-proxy.service
+  - src: ./packaging/powerdns-api-proxy.env
+    dst: /etc/powerdns-api-proxy/powerdns-api-proxy.env
+    type: config|noreplace
+    file_info:
+      mode: 0640
+      owner: root
+      group: powerdns-api-proxy
+  - src: ./packaging/config.yml
+    dst: /etc/powerdns-api-proxy/config.yml
+    type: config|noreplace
+    file_info:
+      mode: 0640
+      owner: root
+      group: powerdns-api-proxy
+
+scripts:
+  postinstall: ./packaging/postinstall.sh
+  preremove: ./packaging/preremove.sh
