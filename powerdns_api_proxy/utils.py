@@ -1,15 +1,23 @@
 import re
 
-SENSITIVE_PATH_SEGMENTS = {"cryptokeys", "tsigkeys"}
+# Path parameters are forwarded into the upstream URL by string formatting, so
+# only characters that the HTTP client cannot reinterpret may be passed on.
+# Anything outside this allowlist would be reinterpreted as a query, fragment,
+# path separator or percent-escape, and the request would hit a different
+# resource than the one the permission check was made for.
+#
+# Besides the raw characters PowerDNS allows in zone/key names, PowerDNS encodes
+# any other byte of a zone id as "=XX" (uppercase hex, see apiZoneIdToName /
+# apiNameToId in ws-api.cc), so those escapes have to be accepted as well. The
+# \w is unicode-aware, so IDN names (utf-8 or punycode) and wildcard zones pass.
+SAFE_PATH_PARAM_PATTERN = re.compile(r"(?:[\w.*-]|=[0-9A-F]{2})+\Z")
 
 
-def is_sensitive_path(path: str) -> bool:
-    """Checks if path points at a cryptokey or tsigkey endpoint.
-
-    Matches on path segments rather than substrings, so a zone named
-    e.g. "tsigkeys.example.com" is not mistaken for the /tsigkeys endpoint.
-    """
-    return any(segment in SENSITIVE_PATH_SEGMENTS for segment in path.split("/"))
+def check_path_param_safe(value: str) -> bool:
+    """Checks that a path parameter can be forwarded to PowerDNS as is."""
+    if value in ("", ".", ".."):
+        return False
+    return SAFE_PATH_PARAM_PATTERN.fullmatch(value) is not None
 
 
 def check_subzone(zone: str, main_zone: str) -> bool:
