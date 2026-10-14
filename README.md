@@ -8,6 +8,9 @@ There is the possibility to define multiple tokens. Each token is represented by
 A `environment` can get access to one or more zones.
 Within a zone, the token can be limited to one or more records.
 
+*Parts of this application's source code were created with assistance from an
+AI coding assistant and reviewed by human contributors.*
+
 ## Usage
 
 ### Container
