@@ -1,12 +1,17 @@
 # AGENTS.md
 
+uv is the recommended tool for Python package management in this repo. Run
+tools through `uv run` (or the Makefile) so they use the locked environment.
+
 ## Commands
 
-    make setup           # deps install; create a venv first: virtualenv .venv
-    make unit            # pytest tests/unit/ with -vvl --showlocals
-    make test            # unit + pre-commit-all + integration (integration suite currently empty)
-    make run             # python -m powerdns_api_proxy --reload; needs PROXY_CONFIG_PATH set
-    .venv/bin/python -m pytest tests/unit/config_test.py -v   # single test file
+    make setup           # uv sync + install the prek Git hook
+    make lint            # run all hooks via prek (ruff, mypy, hadolint, ...)
+    make fmt             # ruff check --fix + ruff format
+    make unit            # uv run pytest tests/unit/ with -vvl --showlocals
+    make test            # lint + unit + integration (integration suite currently empty)
+    make run             # uv run python -m powerdns_api_proxy --reload; needs PROXY_CONFIG_PATH set
+    uv run pytest tests/unit/config_test.py -v   # single test file
 
 ## Gotchas
 
@@ -15,11 +20,13 @@
   valid YAML config before importing `powerdns_api_proxy.proxy` (tests set it
   manually before import, see tests/unit/middleware_test.py;
   `config-example.yml` works).
-- The lint gate is `.pre-commit-config.yaml` (ruff, ruff-format, mypy with
-  --ignore-missing-imports, pyupgrade, hadolint).
-- Pre-existing, don't chase: mypy flags `verify_ssl=` in
-  `pdns.py session.request()` — it exists on main; pre-commit still passes.
-- `no-commit-to-branch` hook blocks direct commits to main — work on a branch.
+- The lint gate is `make lint`, which runs [prek](https://prek.j178.dev/) on
+  `.pre-commit-config.yaml` (a drop-in, faster pre-commit; ruff, pyupgrade,
+  mypy, hadolint, and pre-commit-hooks). The `hadolint-docker` hook needs a
+  running Docker daemon. Dependencies live in `pyproject.toml` and are pinned by
+  `uv.lock`; there are no requirements.txt files.
+- `pdns.py` has a `# type: ignore[call-arg]` on `verify_ssl=`: aiohttp accepts
+  the kwarg at runtime but its type stubs don't, so mypy needs the suppression.
 - LOG_LEVEL defaults to DEBUG and LOG_FILE defaults to a `log` file; set
   LOG_FILE=false when running local copies to avoid writing log files.
 

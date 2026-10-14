@@ -494,18 +494,43 @@ intermediate proxy in `FORWARDED_ALLOW_IPS`.
 
 ## Development
 
-### Install requirements
+[uv](https://docs.astral.sh/uv/) is the recommended tool for Python package
+management in this repository.
+
+### Install dependencies
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and sync the
+locked environment:
 
 ```bash
-virtualenv .venv && source .venv/bin/activate
 make setup
 ```
 
-### Run tests
+This runs `uv sync`, which creates `.venv` and installs the dependencies from
+`uv.lock`, including the dev group, and installs the [prek](https://prek.j178.dev/)
+Git hook. Prefix commands with `uv run` to execute them in that environment.
+
+### Create a virtualenv without uv
+
+uv is only used to manage dependencies, so a plain virtualenv works too
+(requires `pip >= 25.1` for `--group`):
 
 ```bash
-make unit
-make test
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e . --group dev
+prek install
+```
+
+The Makefile targets wrap `uv run`; without uv, invoke the tools directly from
+the activated virtualenv (e.g. `pytest`, `prek run --all-files`).
+
+### Run tests and linters
+
+```bash
+make unit    # unit tests
+make lint    # run all hooks via prek (ruff, mypy, hadolint, ...)
+make test    # lint + unit + integration
 ```
 
 ### Start a webserver with docker

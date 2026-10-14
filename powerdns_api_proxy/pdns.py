@@ -1,7 +1,7 @@
 import json
 import aiohttp
 from json.decoder import JSONDecodeError
-from typing import Any, Union
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -14,7 +14,7 @@ from powerdns_api_proxy.utils import is_sensitive_path
 PDNSResponseStr = str
 PDNSResponseList = list[Any]
 PDNSResponseDict = dict[str, Any]
-PDNSResponseData = Union[PDNSResponseStr, PDNSResponseList, PDNSResponseDict]
+PDNSResponseData = PDNSResponseStr | PDNSResponseList | PDNSResponseDict
 
 
 class PDNSResponse:
@@ -113,7 +113,7 @@ class PDNSConnector:
                 url=path,
                 params=params,
                 json=payload,
-                verify_ssl=self.verify_ssl,
+                verify_ssl=self.verify_ssl,  # type: ignore[call-arg]
             ) as req:
                 text = await req.text()
                 logged_text = "<redacted>" if sensitive_path else text

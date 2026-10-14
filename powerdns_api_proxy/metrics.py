@@ -1,4 +1,4 @@
-from typing import Callable
+from collections.abc import Callable
 
 from prometheus_client import REGISTRY, CollectorRegistry, Counter
 from prometheus_fastapi_instrumentator.metrics import Info

@@ -14,32 +14,32 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: '3.14'
+      - uses: astral-sh/setup-uv@v6
 
       - name: Setup
         run: make setup
 
       - name: Run tests
         run: make unit
-  pre-commit:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: '3.14'
+      - uses: astral-sh/setup-uv@v6
 
       - name: Setup
         run: make setup
 
-      - name: Run pre-commit
-        run: make pre-commit-all
-        env:
-          SKIP: "no-commit-to-branch"
+      - name: Run linters
+        run: make lint
   container:
     runs-on: ubuntu-latest
     needs:
       - test
-      - pre-commit
+      - lint
     steps:
       - name: Check out the repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

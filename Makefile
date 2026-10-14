@@ -5,21 +5,27 @@ help:
 
 all: setup run ## run everything
 
-test: unit pre-commit-all integration ## Run all tests
-
 setup: ## install required modules
-	python -m pip install -U -r requirements.txt
-	python -m pip install -U -r requirements-dev.txt
-	pre-commit install
+	uv sync
+	uv run prek install
+
+lint: ## run linters via prek
+	uv run prek run --all-files $(PREK_SKIP)
+
+fmt: ## format the code
+	uv run ruff check --fix .
+	uv run ruff format .
+
+test: lint unit integration ## Run all tests
 
 unit: ## run unit tests
-	python -m pytest -vvl tests/unit/ --showlocals
+	uv run pytest -vvl tests/unit/ --showlocals
 
 integration: ## run integration tests
-	python -m pytest -vvl --setup-show -vvl tests/integration/ --showlocals
+	uv run pytest -vvl --setup-show -vvl tests/integration/ --showlocals || test $$? -eq 5
 
 run: ## run project
-	python -m powerdns_api_proxy --reload
+	uv run python -m powerdns_api_proxy --reload
 
 clean: ## clean cache and temp dirs
 	rm -rf ./.mypy_cache ./.pytest_cache
@@ -30,12 +36,6 @@ build-docker: ## build docker image
 
 run-docker: build-docker ## run docker image
 	docker run --rm $(PROJECT_NAME):test
-
-pre-commit-all: ## run pre-commit on all files
-	pre-commit run --all-files
-
-pre-commit: ## run pre-commit
-	pre-commit run
 
 run-docker-debug: build-docker ## run debug with docker on port 8000
 	docker run --rm -it -v "${PWD}:/app" -p 8000:8000 -e "PROXY_CONFIG_PATH=${PROXY_CONFIG_PATH}" --rm $(PROJECT_NAME):test python -m powerdns_api_proxy --reload
