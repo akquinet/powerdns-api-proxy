@@ -459,3 +459,8 @@ make run-docker-debug
 PROXY_CONFIG_PATH=./config.yml
 LOG_LEVEL=DEBUG
 ```
+
+## Security
+
+Please do not report security vulnerabilities through public issues. See
+[SECURITY.md](SECURITY.md) for the private reporting channels and what to expect.
