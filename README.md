@@ -400,6 +400,10 @@ Each audit log entry contains:
   - `payload`: Request payload (optional, for write operations; omitted for sensitive endpoints like `/cryptokeys` and `/tsigkeys`)
   - `query_params`: Query parameters (optional, for GET requests)
 
+In addition, the upstream request and response logs for the `/cryptokeys` and
+`/tsigkeys` endpoints replace the body with `<redacted>`, because they carry
+DNSSEC private key and TSIG secret material.
+
 #### Text Format (default)
 
 ```
