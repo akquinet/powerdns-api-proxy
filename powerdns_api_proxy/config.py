@@ -2,7 +2,7 @@ import hashlib
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -29,7 +29,7 @@ from powerdns_api_proxy.utils import (
 
 
 @lru_cache(maxsize=1)
-def load_config(path: Optional[Path] = None) -> ProxyConfig:
+def load_config(path: Path | None = None) -> ProxyConfig:
     logger.info("Loading config")
     if not path:
         env_path = os.getenv("PROXY_CONFIG_PATH")
