@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from powerdns_api_proxy.exceptions import UnhandledException, UpstreamException
 from powerdns_api_proxy.logging import logger
+from powerdns_api_proxy.utils import is_sensitive_path
 
 
 # Type definitions for PowerDNS API responses
@@ -96,9 +97,12 @@ class PDNSConnector:
     async def request(
         self, method: str, path: str, params: dict = {}, payload: dict = {}
     ):
+        # Avoid leaking secret material (DNSSEC private keys, TSIG keys) into logs.
+        sensitive_path = is_sensitive_path(path)
+        logged_payload = "<redacted>" if sensitive_path and payload else payload
         logger.info(
             f"Getting upstream PDNS API with method: {method}, path: {self.base_url + path}, "
-            f"params: {params}, payload: {payload}"
+            f"params: {params}, payload: {logged_payload}"
         )
 
         async with aiohttp.ClientSession(
@@ -112,8 +116,9 @@ class PDNSConnector:
                 verify_ssl=self.verify_ssl,
             ) as req:
                 text = await req.text()
+                logged_text = "<redacted>" if sensitive_path else text
                 logger.debug(
-                    f'Got answer from upstream PDNS API Status: {req.status}, text: "{text}"'
+                    f'Got answer from upstream PDNS API Status: {req.status}, text: "{logged_text}"'
                 )
                 return req
 
