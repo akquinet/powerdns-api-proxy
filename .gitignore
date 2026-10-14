@@ -1,5 +1,6 @@
 api-test.py
 config.yml
+!.github/ISSUE_TEMPLATE/config.yml
 log
 
 # Byte-compiled / optimized / DLL files
