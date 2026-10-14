@@ -7,9 +7,9 @@ authors = [{ name = "akquinet", email = "noc@akquinet.de" }]
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp==3.14.3",
-    "fastapi==0.128.0",
+    "fastapi==0.143.1",
     "httpx",
-    "prometheus-fastapi-instrumentator==7.1.0",
+    "prometheus-fastapi-instrumentator==8.1.0",
     "pyyaml==6.0.3",
     "sentry-sdk[fastapi]==2.51.0",
     "uvicorn==0.40.0",
