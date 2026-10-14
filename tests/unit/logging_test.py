@@ -199,3 +199,17 @@ def test_audit_log_omits_client_ip_when_not_provided(caplog):
     record = caplog.records[0]
     assert record.message == "AUDIT: Test1 DELETE /zones/test.com 403"
     assert "client_ip" not in record.audit
+
+
+def test_audit_log_keeps_unknown_marker_out_of_the_text_message(caplog):
+    """Only real addresses go into the text line; the marker stays JSON-only."""
+    logger = logging.getLogger("test_audit_client_ip_unknown")
+    logger.setLevel(logging.INFO)
+    logger.__class__ = AuditLogger
+
+    with caplog.at_level(logging.INFO, logger="test_audit_client_ip_unknown"):
+        logger.audit("Test1", "GET", "/zones", 401, client_ip="unknown")
+
+    record = caplog.records[0]
+    assert record.message == "AUDIT: Test1 GET /zones 401"
+    assert record.audit["client_ip"] == "unknown"

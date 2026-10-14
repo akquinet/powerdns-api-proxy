@@ -63,7 +63,8 @@ class AuditLogger(logging.Logger):
 
         audit_data: dict[str, str | int | dict] = {
             "environment": environment,
-            # Reported next to the identity it belongs to
+            # Only written when present: the real address, or "unknown" when the
+            # peer address is unavailable. Omitted entirely when logging is off.
             **({"client_ip": client_ip} if client_ip else {}),
             "method": method,
             "path": path,
@@ -74,8 +75,11 @@ class AuditLogger(logging.Logger):
         if query_params is not None and query_params:
             audit_data["query_params"] = query_params
 
-        # Build message with optional query_params/payload info
-        identity = f"{environment} {client_ip}" if client_ip else environment
+        # Text output only carries a real address, never the "unknown" marker.
+        if client_ip and client_ip != "unknown":
+            identity = f"{environment} {client_ip}"
+        else:
+            identity = environment
         msg_parts = [f"AUDIT: {identity} {method} {path} {status_code}"]
         if query_params:
             msg_parts.append(f"query_params={query_params}")

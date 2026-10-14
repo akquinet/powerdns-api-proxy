@@ -8,6 +8,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 # Must be set before importing the proxy, which loads the config at import time
 os.environ["PROXY_CONFIG_PATH"] = "./config-example.yml"
 
+from powerdns_api_proxy import middleware  # noqa: E402
 from powerdns_api_proxy.proxy import app  # noqa: E402
 
 
@@ -96,18 +97,9 @@ def _asgi_get_without_client(target_app, path):
     anyio.run(target_app, scope, receive, send)
 
 
-def test_middleware_logs_client_ip(client, caplog):
-    client.get(
-        "/api/v1/servers/localhost/zones",
-        headers={"X-API-Key": "invalid"},
-    )
-
-    # TestClient's default peer address
-    assert _audit_record(caplog)["client_ip"] == "testclient"
-
-
-def test_middleware_logs_forwarded_client_ip(caplog):
-    """The nginx-sidecar path: uvicorn rewrites the peer from X-Forwarded-For."""
+def test_middleware_logs_forwarded_client_ip(caplog, monkeypatch):
+    """The reverse-proxy path: uvicorn rewrites the peer from X-Forwarded-For."""
+    monkeypatch.setattr(middleware, "AUDIT_LOG_CLIENT_IP", True)
     proxied_app = ProxyHeadersMiddleware(app, trusted_hosts="testclient")
     proxied_client = TestClient(proxied_app)
 
@@ -119,8 +111,11 @@ def test_middleware_logs_forwarded_client_ip(caplog):
     assert _audit_record(caplog)["client_ip"] == "203.0.113.9"
 
 
-def test_middleware_logs_rightmost_untrusted_hop_of_forwarded_chain(caplog):
+def test_middleware_logs_rightmost_untrusted_hop_of_forwarded_chain(
+    caplog, monkeypatch
+):
     """A hop the client forged on the left must not win over the real one."""
+    monkeypatch.setattr(middleware, "AUDIT_LOG_CLIENT_IP", True)
     proxied_app = ProxyHeadersMiddleware(app, trusted_hosts="testclient,10.0.0.7")
     proxied_client = TestClient(proxied_app)
 
@@ -137,9 +132,9 @@ def test_middleware_logs_rightmost_untrusted_hop_of_forwarded_chain(caplog):
     assert _audit_record(caplog)["client_ip"] == "203.0.113.9"
 
 
-def test_middleware_omits_client_ip_when_disabled(client, caplog, monkeypatch):
-    monkeypatch.setenv("AUDIT_LOG_CLIENT_IP", "false")
-
+def test_middleware_omits_client_ip_by_default(client, caplog, monkeypatch):
+    """Client IPs are personal data and must not be logged unless opted in."""
+    monkeypatch.setattr(middleware, "AUDIT_LOG_CLIENT_IP", False)
     client.get(
         "/api/v1/servers/localhost/zones",
         headers={"X-API-Key": "invalid"},
@@ -152,7 +147,10 @@ def test_middleware_omits_client_ip_when_disabled(client, caplog, monkeypatch):
     assert "/zones" in audit["path"]
 
 
-def test_middleware_omits_client_ip_when_peer_unknown(caplog):
+def test_middleware_marks_client_ip_unknown_when_peer_unknown(caplog, monkeypatch):
+    """A transport without a peer address must not raise; mark it unknown."""
+    monkeypatch.setattr(middleware, "AUDIT_LOG_CLIENT_IP", True)
+
     _asgi_get_without_client(app, "/api/v1/servers/localhost/zones")
 
-    assert "client_ip" not in _audit_record(caplog)
+    assert _audit_record(caplog)["client_ip"] == "unknown"

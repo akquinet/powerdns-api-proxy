@@ -9,6 +9,8 @@ from powerdns_api_proxy.logging import logger
 
 _config = load_config()
 
+AUDIT_LOG_CLIENT_IP = os.getenv("AUDIT_LOG_CLIENT_IP", "false").lower() == "true"
+
 
 class AuditMiddleware(BaseHTTPMiddleware):
     """Middleware to automatically log all API requests and their response status code"""
@@ -42,12 +44,16 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         query_params = dict(request.query_params) if request.query_params else None
 
-        # Reflects X-Forwarded-For when uvicorn's proxy_headers trusts the
-        # immediate peer -- see FORWARDED_ALLOW_IPS in the README. request.client
-        # is None on transports that omit "client" from the ASGI scope.
-        client_ip = None
-        if os.getenv("AUDIT_LOG_CLIENT_IP", "true").lower() != "false":
-            client_ip = request.client.host if request.client else None
+        # Opt-in: client IPs are personal data (GDPR/DSGVO), so they are only
+        # recorded when AUDIT_LOG_CLIENT_IP=true. When the peer address is
+        # unavailable it is recorded as "unknown". Reflects X-Forwarded-For when
+        # uvicorn's proxy_headers trusts the immediate peer -- see
+        # FORWARDED_ALLOW_IPS in the README. request.client is None on
+        # transports that omit "client" from the ASGI scope.
+        if AUDIT_LOG_CLIENT_IP:
+            client_ip = request.client.host if request.client else "unknown"
+        else:
+            client_ip = None
 
         path = request.url.path.replace("/api/v1/servers/localhost", "")
         status_code = 500
