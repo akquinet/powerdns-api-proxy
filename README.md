@@ -49,7 +49,11 @@ A full example is available in [config-example.yml](config-example.yml).
 ### 3. Run the proxy
 
 Containers are published to
-[GHCR](https://github.com/akquinet/powerdns-api-proxy/pkgs/container/powerdns-api-proxy):
+[GHCR](https://github.com/akquinet/powerdns-api-proxy/pkgs/container/powerdns-api-proxy).
+Versioned tags (`v1.12.3`, ...) are published alongside `latest`; pinning a
+release tag instead of `latest` is recommended for production (see the
+[releases](https://github.com/akquinet/powerdns-api-proxy/releases) for the
+latest tag):
 
 ```bash
 docker run -v ./config:/config \
@@ -78,6 +82,16 @@ curl -H "X-API-Key: $token" \
 ```
 
 ## How it works
+
+```mermaid
+flowchart LR
+    client[Client] -->|own token, X-API-Key| proxy["Proxy<br/>per-env permissions"]
+    proxy -->|pdns_api_token| pdns[PowerDNS API]
+```
+
+Each client sends its own token; the proxy maps it to an environment, checks
+zone and record permissions, then forwards allowed requests to the PowerDNS
+API using the upstream `pdns_api_token`.
 
 ### Environments and tokens
 
@@ -196,9 +210,10 @@ With `metrics_require_auth: false` no authentication is required.
 
 ### PowerDNS API endpoints
 
-The proxy exposes the following PowerDNS API v1 endpoints below `/api/v1`.
-They all require a valid token, and the server ID must be `localhost`; any
-other value returns `404`.
+The proxy exposes the following
+[PowerDNS API v1](https://doc.powerdns.com/authoritative/http-api/index.html)
+endpoints below `/api/v1`. They all require a valid token, and the server ID
+must be `localhost`; any other value returns `404`.
 
 | Endpoint | Additional permission |
 | --- | --- |
@@ -278,7 +293,9 @@ environments:
 | `subzones` | `false` | Apply the permissions to all subzones |
 | `cryptokeys` | `false` | Allow DNSSEC key management in the zone |
 | `services.acme` | see above | Allow ACME challenge records |
-| `all_records` | automatic | Enabled automatically when no records are listed |
+
+`all_records` is not configured directly: it is enabled automatically when a
+zone lists neither `records` nor `regex_records`.
 
 ## Environment variables
 
@@ -519,6 +536,7 @@ the activated virtualenv (e.g. `pytest`, `prek run --all-files`).
 ### Running locally
 
 ```bash
+cp config-example.yml config.yml
 export PROXY_CONFIG_PATH=./config.yml
 export LOG_FILE=false   # avoid writing a log file next to the checkout
 make run
