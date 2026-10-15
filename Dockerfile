@@ -1,40 +1,30 @@
-FROM docker.io/python:3.14.1-slim@sha256:b823ded4377ebb5ff1af5926702df2284e53cecbc6e3549e93a19d8632a1897e AS builder
+FROM docker.io/golang:1.27-alpine AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /uvx /bin/
+WORKDIR /src
 
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never
+COPY go.mod go.sum ./
+RUN go mod download
 
-WORKDIR /app
+COPY cmd ./cmd
+COPY internal ./internal
 
-COPY pyproject.toml uv.lock /app/
-RUN uv sync --frozen --no-dev --no-install-project
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o /out/powerdns-api-proxy ./cmd/powerdns-api-proxy
 
-COPY powerdns_api_proxy /app/powerdns_api_proxy
-RUN uv sync --frozen --no-dev
 
+FROM docker.io/alpine:3.21
 
-FROM docker.io/python:3.14.1-slim@sha256:b823ded4377ebb5ff1af5926702df2284e53cecbc6e3549e93a19d8632a1897e
+# jq is shipped for parsing JSON audit logs (see README).
+# hadolint ignore=DL3018
+RUN apk add --no-cache jq \
+    && adduser -D -u 1000 appuser
 
-# hadolint ignore=DL3008
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /out/powerdns-api-proxy /usr/local/bin/powerdns-api-proxy
 
-WORKDIR /app
-
-COPY --from=builder /app/.venv /app/.venv
-COPY powerdns_api_proxy /app/powerdns_api_proxy
-
-ENV PATH=/app/.venv/bin:$PATH \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# Creates a non-root user with an explicit UID and adds permission to access the /app folder
-RUN : \
-    && adduser -u 1000 --disabled-password --gecos "" appuser \
-    && chown -R appuser /app && chmod -R 0750 /app
 USER appuser
 
+EXPOSE 8000
 
-CMD ["python", "-m", "powerdns_api_proxy"]
+ENTRYPOINT ["/usr/local/bin/powerdns-api-proxy"]

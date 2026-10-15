@@ -1,4 +1,0 @@
----
-# file to test regex parsing with yaml escaping
-name: ".*\\.example\\.com"
-regex: true

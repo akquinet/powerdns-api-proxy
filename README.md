@@ -131,8 +131,10 @@ environments:
           - "_acme-challenge.service-.*.example.com"
 ```
 
-Zone names and record names are matched in full (`re.fullmatch`); a trailing
-dot is ignored on both sides.
+Zone names and record names are matched in full (`re.fullmatch`; the Go
+implementation uses RE2 and anchors the pattern); a trailing dot is ignored on
+both sides. Compared to Python's `re`, [RE2](https://github.com/google/re2/wiki/Syntax)
+does not support backreferences or lookaround, and `\w`/`\d` are ASCII-only.
 
 Additional zone options:
 
@@ -318,10 +320,19 @@ zone lists neither `records` nor `regex_records`.
 
 ### Metrics
 
-The proxy exposes Prometheus metrics on `/metrics` using
-[prometheus-fastapi-instrumentator](https://github.com/trallnag/prometheus-fastapi-instrumentator).
-In addition to the default metrics, `http_requests_environment` counts requests
-by environment, method, status and handler.
+The proxy exposes Prometheus metrics on `/metrics` using the standard
+[Go Prometheus client](https://github.com/prometheus/client_golang). It
+reproduces the series of the previous implementation so existing dashboards keep
+working:
+
+- `http_requests_total{method,status,handler}`
+- `http_request_size_bytes{handler}`
+- `http_response_size_bytes{handler}`
+- `http_request_duration_seconds{method,handler}`
+- `http_request_duration_highr_seconds`
+- `http_requests_environment{environment,method,status,handler}`
+
+In addition, the Go and process collectors (`go_*`, `process_*`) are exported.
 
 Set `metrics_enabled: false` to disable the endpoint, and
 `metrics_require_auth: false` to drop the basic-auth requirement.
@@ -358,8 +369,8 @@ index_html: |
 ## Logging
 
 Logs are written to stderr and, unless `LOG_FILE=false` is set, also to a
-rotating log file. With `LOG_FORMAT=json`, application logs and uvicorn access
-logs are emitted as JSON. See
+rotating log file (rotated at 100 MB with 5 backups). With `LOG_FORMAT=json`,
+application logs and access logs are emitted as JSON. See
 [Environment variables](#environment-variables) for all log settings.
 
 ### Audit logging
@@ -389,9 +400,9 @@ endpoints replace the body with `<redacted>`, because they carry DNSSEC private
 key and TSIG secret material.
 
 Client IP addresses are personal data, so they are **not** logged by default.
-`AUDIT_LOG_CLIENT_IP=true` does not affect the uvicorn access log, which logs
-the client address independently; to suppress IPs entirely, raise the log level
-of the `uvicorn.access` logger as well.
+`AUDIT_LOG_CLIENT_IP=true` does not affect the access log, which logs the client
+address independently; to suppress IPs entirely, raise `LOG_LEVEL` so access
+logs are not emitted.
 
 #### Text format (default)
 
@@ -452,11 +463,11 @@ docker logs powerdns-api-proxy 2>&1 | jq 'select(.event_type == "audit" and .aud
 
 ### Running behind a reverse proxy
 
-When the proxy runs behind a reverse proxy, `client_ip` comes from
-`request.client.host`, which uvicorn rewrites from `X-Forwarded-For` only when
-the immediate peer is listed in `FORWARDED_ALLOW_IPS` (default: `127.0.0.1`).
-Trusted addresses become the `client_ip` and the uvicorn access-log address;
-untrusted headers are ignored and the real TCP peer is used.
+When the proxy runs behind a reverse proxy, `client_ip` is derived from the
+`X-Forwarded-For` header only when the immediate peer is listed in
+`FORWARDED_ALLOW_IPS` (default: `127.0.0.1`). Trusted addresses become the
+`client_ip` and the access-log address; untrusted headers are ignored and the
+real TCP peer is used.
 
 Set `FORWARDED_ALLOW_IPS` to the address of the reverse proxy that connects to
 this service (CIDR ranges and comma-separated hosts are supported):
@@ -486,52 +497,28 @@ every intermediate proxy in `FORWARDED_ALLOW_IPS`.
 
 ## Development
 
-[uv](https://docs.astral.sh/uv/) is the recommended tool for Python package
-management in this repository.
+This is a Go project (Go 1.27). Dependencies are pinned in `go.mod`/`go.sum`.
 
-### Setup with uv
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and sync
-the locked environment:
+### Setup
 
 ```bash
-make setup
+go mod download
 ```
-
-This runs `uv sync`, which creates `.venv` and installs the dependencies from
-`uv.lock`, including the dev group, and installs the
-[prek](https://prek.j178.dev/) Git hook. Prefix commands with `uv run` to
-execute them in that environment.
-
-### Setup without uv
-
-uv is only used to manage dependencies, so a plain virtualenv works too
-(requires `pip >= 25.1` for `--group`):
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e . --group dev
-prek install
-```
-
-The Makefile targets wrap `uv run`; without uv, invoke the tools directly from
-the activated virtualenv (e.g. `pytest`, `prek run --all-files`).
 
 ### Make targets
 
 | Target | Description |
 | --- | --- |
-| `make setup` | `uv sync` + install the prek Git hook |
-| `make run` | Run the proxy with auto-reload (requires `PROXY_CONFIG_PATH`) |
+| `make build` | Build the binary into `bin/` |
+| `make run` | Run the proxy (requires `PROXY_CONFIG_PATH`) |
 | `make unit` | Run the unit tests |
-| `make lint` | Run all hooks via prek (ruff, mypy, hadolint, ...) |
-| `make fmt` | Apply `ruff check --fix` and `ruff format` |
-| `make test` | lint + unit + integration |
-| `make integration` | Run the integration tests |
+| `make lint` | Run `golangci-lint` (falls back to `go vet`) |
+| `make fmt` | Apply `gofmt` |
+| `make vet` | Run `go vet` |
+| `make test` | lint + unit |
 | `make build-docker` | Build the Docker image |
 | `make run-docker` | Build and run the Docker image |
-| `make run-docker-debug` | Build and run with auto-reload on port 8000 |
+| `make run-docker-debug` | Build and run with a mounted config on port 8000 |
 
 ### Running locally
 
@@ -542,12 +529,9 @@ export LOG_FILE=false   # avoid writing a log file next to the checkout
 make run
 ```
 
-On saving Python files, FastAPI reloads automatically. The Docker variant is
-`make run-docker-debug` (needs `PROXY_CONFIG_PATH` set in the environment).
-
-The config is loaded at import time, so `PROXY_CONFIG_PATH` must point at valid
-YAML before the `powerdns_api_proxy.proxy` module is imported; tests set it
-explicitly.
+The configuration is read once at startup, so restart the proxy to apply
+changes (the binary takes no `--reload`; use your editor/`air` if you want live
+reload). The Docker variant is `make run-docker-debug`.
 
 ## Security
 

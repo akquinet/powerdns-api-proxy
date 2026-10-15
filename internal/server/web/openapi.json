@@ -1,0 +1,277 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "PowerDNS API Proxy",
+    "version": "1.0.0",
+    "description": "Proxy in front of the PowerDNS Authoritative API. Clients authenticate with their own token via the X-API-Key header; the proxy maps it to an environment with per-zone and server-wide permissions."
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        }
+      }
+    }
+  },
+  "security": [{ "ApiKey": [] }],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Index page",
+        "security": [],
+        "responses": { "200": { "description": "HTML index page" }, "404": { "description": "Disabled" } }
+      }
+    },
+    "/docs": {
+      "get": {
+        "summary": "Swagger UI",
+        "security": [],
+        "responses": { "200": { "description": "Swagger UI" } }
+      }
+    },
+    "/health/pdns": {
+      "get": {
+        "summary": "Check upstream PowerDNS API",
+        "security": [],
+        "responses": { "200": { "description": "Upstream is reachable" }, "500": { "description": "Upstream is not reachable" } }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Prometheus metrics",
+        "security": [{ "ApiKey": [] }],
+        "responses": { "200": { "description": "Prometheus metrics" } }
+      }
+    },
+    "/info/allowed": {
+      "get": {
+        "summary": "Zones the token may access",
+        "responses": { "200": { "description": "Allowed zones" }, "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/info/zone-allowed": {
+      "get": {
+        "summary": "Check a single zone",
+        "parameters": [
+          { "name": "zone", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Zone permission" }, "401": { "description": "Unauthorized" } }
+      }
+    },
+    "/api": {
+      "get": {
+        "summary": "Proxy and API version info",
+        "responses": { "200": { "description": "Version info" }, "401": { "description": "Unauthorized" } }
+      }
+    },
+    "/api/v1/servers": {
+      "get": {
+        "summary": "List servers",
+        "responses": { "200": { "description": "Servers" }, "401": { "description": "Unauthorized" } }
+      }
+    },
+    "/api/v1/servers/{server_id}": {
+      "get": {
+        "summary": "Get a server",
+        "parameters": [{ "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Server" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/config": {
+      "get": {
+        "summary": "Get server configuration (global_config)",
+        "parameters": [{ "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Configuration" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/config/{config_setting_name}": {
+      "get": {
+        "summary": "Get a configuration setting (global_config)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "config_setting_name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Configuration setting" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/statistics": {
+      "get": {
+        "summary": "Get server statistics (global_statistics)",
+        "parameters": [{ "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Statistics" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/zones": {
+      "get": {
+        "summary": "List zones (filtered to allowed zones)",
+        "parameters": [{ "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Zones" } }
+      },
+      "post": {
+        "summary": "Create a zone (zone admin)",
+        "parameters": [{ "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "201": { "description": "Created" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/zones/{zone_id}": {
+      "get": {
+        "summary": "Get zone metadata",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Zone" }, "403": { "description": "Forbidden" } }
+      },
+      "put": {
+        "summary": "Update zone metadata (zone admin)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "Updated" }, "403": { "description": "Forbidden" } }
+      },
+      "patch": {
+        "summary": "Update RRSets (record/regex permissions)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "Updated" }, "403": { "description": "Forbidden" } }
+      },
+      "delete": {
+        "summary": "Delete a zone (zone admin)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "Deleted" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/zones/{zone_id}/notify": {
+      "put": {
+        "summary": "Queue zone notification",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Queued" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/zones/{zone_id}/rectify": {
+      "put": {
+        "summary": "Rectify the zone",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Rectified" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/search-data": {
+      "get": {
+        "summary": "Search data (global_search)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "max", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "object_type", "in": "query", "required": false, "schema": { "type": "string", "enum": ["all", "zone", "record", "comment"] } }
+        ],
+        "responses": { "200": { "description": "Search results" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys": {
+      "get": {
+        "summary": "List DNSSEC keys (cryptokeys)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Keys" }, "403": { "description": "Forbidden" } }
+      },
+      "post": {
+        "summary": "Create a DNSSEC key (cryptokeys)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "201": { "description": "Created" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}": {
+      "get": {
+        "summary": "Get a DNSSEC key (cryptokeys)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "cryptokey_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Key" }, "403": { "description": "Forbidden" } }
+      },
+      "put": {
+        "summary": "Update a DNSSEC key (cryptokeys)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "cryptokey_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Updated" }, "403": { "description": "Forbidden" } }
+      },
+      "delete": {
+        "summary": "Delete a DNSSEC key (cryptokeys)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "cryptokey_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "Deleted" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/tsigkeys": {
+      "get": {
+        "summary": "List TSIG keys (global_tsigkeys)",
+        "parameters": [{ "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Keys" }, "403": { "description": "Forbidden" } }
+      },
+      "post": {
+        "summary": "Create a TSIG key (global_tsigkeys)",
+        "parameters": [{ "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "201": { "description": "Created" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}": {
+      "get": {
+        "summary": "Get a TSIG key (global_tsigkeys)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "tsigkey_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Key" }, "403": { "description": "Forbidden" } }
+      },
+      "put": {
+        "summary": "Update a TSIG key (global_tsigkeys)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "tsigkey_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Updated" }, "403": { "description": "Forbidden" } }
+      },
+      "delete": {
+        "summary": "Delete a TSIG key (global_tsigkeys)",
+        "parameters": [
+          { "name": "server_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "tsigkey_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "Deleted" }, "403": { "description": "Forbidden" } }
+      }
+    }
+  }
+}

@@ -1,3 +1,7 @@
 .git/
-.venv/
+.github/
+bin/
 log
+config.yml
+config.yaml
+*.md
