@@ -19,7 +19,7 @@ These do **not** need a prior issue:
 - A bug fix (including an isolated fix of a few lines)
 - Typo and documentation fixes
 - Test additions or fixes
-- Dependency bumps (usually automated via Renovate/Dependabot)
+- Dependency bumps (usually automated via Renovate)
 - Small, isolated changes that do not alter public behavior
 
 A small change should not introduce new behavior, new API endpoints, new
