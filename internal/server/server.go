@@ -3,11 +3,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/go-chi/chi/v5"
+	swaggerFiles "github.com/swaggo/files/v2"
 
 	"github.com/akquinet/powerdns-api-proxy/internal/config"
 	"github.com/akquinet/powerdns-api-proxy/internal/httperr"
@@ -30,98 +34,113 @@ type App struct {
 	// PanicReporter is called with recovered panic values, if set. Wire it to
 	// your error tracker (e.g. Sentry) in main.
 	PanicReporter func(r *http.Request, recovered any)
-
-	// routes records the registered patterns and which wrapper guards them.
-	// It exists so tests can assert authentication and path-parameter
-	// validation cover every route, even ones added later.
-	routes []routeEntry
 }
 
-type routeEntry struct {
-	pattern string
-	// wrapper is "env" (token auth), "pdns" (env + path-param validation) or
-	// "plain" (no auth).
-	wrapper string
+type contextKey int
+
+const environmentKey contextKey = iota
+
+// envFrom returns the authenticated environment stored by auth.
+func envFrom(r *http.Request) *config.Environment {
+	env, _ := r.Context().Value(environmentKey).(*config.Environment)
+	return env
 }
 
-// envHandler is a handler that has already passed authentication.
-type envHandler func(w http.ResponseWriter, r *http.Request, env *config.Environment)
-
-// Handler builds the full middleware chain around the router.
+// Handler builds the middleware chain and router.
 func (a *App) Handler() http.Handler {
-	h := a.router()
-
-	if a.Metrics != nil {
-		h = a.Metrics.Middleware(a.Cfg, h)
-	}
-	h = middleware.NewAudit(a.Cfg, a.AuditEnabled, a.AuditLogClientIP).Wrap(h)
-	h = middleware.NewAccessLog(h)
-	h = middleware.NewProxyHeaders(a.ForwardedAllowIPs, h)
-	return a.recoverPanic(h)
+	return a.router()
 }
 
-func (a *App) router() http.Handler {
-	mux := http.NewServeMux()
-	a.routes = nil
+func (a *App) router() *chi.Mux {
+	r := chi.NewRouter()
 
-	// handle registers a pattern and records which wrapper guards it. All
-	// route registration must go through here so the route safety net test can
-	// assert coverage.
-	var handle func(pattern, wrapper string, h http.HandlerFunc)
-	handle = func(pattern, wrapper string, h http.HandlerFunc) {
-		a.routes = append(a.routes, routeEntry{pattern: pattern, wrapper: wrapper})
-		mux.HandleFunc(pattern, h)
+	// Outermost first.
+	r.Use(a.recoverer)
+	r.Use(middleware.ProxyHeaders(a.ForwardedAllowIPs))
+	r.Use(middleware.AccessLog())
+	r.Use(middleware.NewAudit(a.Cfg, a.AuditEnabled, a.AuditLogClientIP).Wrap)
+	if a.Metrics != nil {
+		r.Use(a.Metrics.Middleware(a.Cfg))
 	}
 
-	handle("GET /{$}", "plain", a.handleIndex)
-	handle("HEAD /{$}", "plain", a.handleIndex)
+	r.Get("/", a.handleIndex)
+	r.Head("/", a.handleIndex)
 	if a.Cfg.APIDocsEnabled {
-		handle("GET /docs", "plain", a.handleDocs)
-		handle("GET /docs/{path...}", "plain", a.handleDocs)
+		r.Get("/docs", a.handleDocsIndex)
+		r.Get("/docs/", a.handleDocsIndex)
+		r.Get("/docs/openapi.json", a.handleOpenAPI)
+		r.Handle("/docs/*", http.StripPrefix("/docs/", http.FileServerFS(swaggerFiles.FS)))
 	}
-	handle("GET /health/pdns", "plain", a.handleHealth)
+	r.Get("/health/pdns", a.handleHealth)
 	if a.Metrics != nil {
-		a.routes = append(a.routes, routeEntry{pattern: "GET /metrics", wrapper: "plain"})
-		mux.Handle("GET /metrics", a.metricsHandler())
+		r.Get("/metrics", a.metricsHandler().ServeHTTP)
 	}
 
-	handle("GET /info/allowed", "env", a.withEnv(a.handleAllowed))
-	handle("GET /info/zone-allowed", "env", a.withEnv(a.handleZoneAllowed))
-	handle("GET /api", "env", a.withEnv(a.handleAPIRoot))
+	r.Group(func(r chi.Router) {
+		r.Use(a.auth)
+		r.Get("/info/allowed", a.handleAllowed)
+		r.Get("/info/zone-allowed", a.handleZoneAllowed)
+		r.Get("/api", a.handleAPIRoot)
+	})
 
-	handle("GET /api/v1/servers", "pdns", a.withPDNS(a.handleGetServers))
-	handle("GET /api/v1/servers/{server_id}", "pdns", a.withPDNS(a.handleGetServer))
-	handle("GET /api/v1/servers/{server_id}/config", "pdns", a.withPDNS(a.handleGetConfig))
-	handle("GET /api/v1/servers/{server_id}/config/{config_setting_name}", "pdns", a.withPDNS(a.handleGetConfigSetting))
-	handle("GET /api/v1/servers/{server_id}/statistics", "pdns", a.withPDNS(a.handleGetStatistics))
-	handle("GET /api/v1/servers/{server_id}/zones", "pdns", a.withPDNS(a.handleGetZones))
-	handle("POST /api/v1/servers/{server_id}/zones", "pdns", a.withPDNS(a.handleCreateZone))
-	handle("GET /api/v1/servers/{server_id}/zones/{zone_id}", "pdns", a.withPDNS(a.handleGetZone))
-	handle("PUT /api/v1/servers/{server_id}/zones/{zone_id}", "pdns", a.withPDNS(a.handlePutZone))
-	handle("PATCH /api/v1/servers/{server_id}/zones/{zone_id}", "pdns", a.withPDNS(a.handlePatchZone))
-	handle("DELETE /api/v1/servers/{server_id}/zones/{zone_id}", "pdns", a.withPDNS(a.handleDeleteZone))
-	handle("PUT /api/v1/servers/{server_id}/zones/{zone_id}/notify", "pdns", a.withPDNS(a.handleNotify))
-	handle("PUT /api/v1/servers/{server_id}/zones/{zone_id}/rectify", "pdns", a.withPDNS(a.handleRectify))
-	handle("GET /api/v1/servers/{server_id}/search-data", "pdns", a.withPDNS(a.handleSearchData))
+	// Every PowerDNS route runs behind auth and path-parameter validation.
+	// The guard is applied per route via With because chi group middleware
+	// runs before route matching, where path parameters are not yet decoded.
+	// TestRouteCoverage asserts that every /api/v1 endpoint in the router
+	// comes from apiV1Routes and carries both middlewares.
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(a.auth)
+		for _, rt := range a.apiV1Routes() {
+			r.With(a.guardPathParams).Method(rt.method, rt.pattern, rt.handler)
+		}
+	})
 
-	handle("GET /api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys", "pdns", a.withPDNS(a.handleKeyed(cryptokeysResource, false, false)))
-	handle("POST /api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys", "pdns", a.withPDNS(a.handleKeyed(cryptokeysResource, false, true)))
-	handle("GET /api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}", "pdns", a.withPDNS(a.handleKeyed(cryptokeysResource, true, false)))
-	handle("PUT /api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}", "pdns", a.withPDNS(a.handleKeyed(cryptokeysResource, true, true)))
-	handle("DELETE /api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}", "pdns", a.withPDNS(a.handleKeyed(cryptokeysResource, true, false)))
-
-	handle("GET /api/v1/servers/{server_id}/tsigkeys", "pdns", a.withPDNS(a.handleKeyed(tsigkeysResource, false, false)))
-	handle("POST /api/v1/servers/{server_id}/tsigkeys", "pdns", a.withPDNS(a.handleKeyed(tsigkeysResource, false, true)))
-	handle("GET /api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}", "pdns", a.withPDNS(a.handleKeyed(tsigkeysResource, true, false)))
-	handle("PUT /api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}", "pdns", a.withPDNS(a.handleKeyed(tsigkeysResource, true, true)))
-	handle("DELETE /api/v1/servers/{server_id}/tsigkeys/{tsigkey_id}", "pdns", a.withPDNS(a.handleKeyed(tsigkeysResource, true, false)))
-
-	return mux
+	return r
 }
 
-// withEnv authenticates the token and injects the environment.
-func (a *App) withEnv(h envHandler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+// apiRoute is one PowerDNS API endpoint, relative to /api/v1.
+type apiRoute struct {
+	method  string
+	pattern string
+	handler http.HandlerFunc
+}
+
+// apiV1Routes lists every PowerDNS endpoint. Register routes here, not
+// directly on the router, so TestRouteCoverage keeps its guarantees.
+func (a *App) apiV1Routes() []apiRoute {
+	return []apiRoute{
+		{http.MethodGet, "/servers", a.handleGetServers},
+		{http.MethodGet, "/servers/{server_id}", a.handleGetServer},
+		{http.MethodGet, "/servers/{server_id}/config", a.handleGetConfig},
+		{http.MethodGet, "/servers/{server_id}/config/{config_setting_name}", a.handleGetConfigSetting},
+		{http.MethodGet, "/servers/{server_id}/statistics", a.handleGetStatistics},
+		{http.MethodGet, "/servers/{server_id}/search-data", a.handleSearchData},
+		{http.MethodGet, "/servers/{server_id}/zones", a.handleGetZones},
+		{http.MethodPost, "/servers/{server_id}/zones", a.handleCreateZone},
+		{http.MethodGet, "/servers/{server_id}/zones/{zone_id}", a.handleGetZone},
+		{http.MethodPut, "/servers/{server_id}/zones/{zone_id}", a.handlePutZone},
+		{http.MethodPatch, "/servers/{server_id}/zones/{zone_id}", a.handlePatchZone},
+		{http.MethodDelete, "/servers/{server_id}/zones/{zone_id}", a.handleDeleteZone},
+		{http.MethodPut, "/servers/{server_id}/zones/{zone_id}/notify", a.handleNotify},
+		{http.MethodPut, "/servers/{server_id}/zones/{zone_id}/rectify", a.handleRectify},
+
+		{http.MethodGet, "/servers/{server_id}/zones/{zone_id}/cryptokeys", a.handleKeyed(cryptokeysResource, false, false)},
+		{http.MethodPost, "/servers/{server_id}/zones/{zone_id}/cryptokeys", a.handleKeyed(cryptokeysResource, false, true)},
+		{http.MethodGet, "/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}", a.handleKeyed(cryptokeysResource, true, false)},
+		{http.MethodPut, "/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}", a.handleKeyed(cryptokeysResource, true, true)},
+		{http.MethodDelete, "/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}", a.handleKeyed(cryptokeysResource, true, false)},
+
+		{http.MethodGet, "/servers/{server_id}/tsigkeys", a.handleKeyed(tsigkeysResource, false, false)},
+		{http.MethodPost, "/servers/{server_id}/tsigkeys", a.handleKeyed(tsigkeysResource, false, true)},
+		{http.MethodGet, "/servers/{server_id}/tsigkeys/{tsigkey_id}", a.handleKeyed(tsigkeysResource, true, false)},
+		{http.MethodPut, "/servers/{server_id}/tsigkeys/{tsigkey_id}", a.handleKeyed(tsigkeysResource, true, true)},
+		{http.MethodDelete, "/servers/{server_id}/tsigkeys/{tsigkey_id}", a.handleKeyed(tsigkeysResource, true, false)},
+	}
+}
+
+// auth authenticates the token and stores the environment in the context.
+func (a *App) auth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("X-API-Key")
 		if token == "" {
 			writeError(w, httperr.New(http.StatusUnprocessableEntity, "Missing X-API-Key header"))
@@ -132,38 +151,35 @@ func (a *App) withEnv(h envHandler) http.HandlerFunc {
 			writeError(w, httperr.NotAuthorized())
 			return
 		}
-		h(w, r, env)
-	}
-}
-
-// withPDNS authenticates and validates path parameters before the handler runs.
-func (a *App) withPDNS(h envHandler) http.HandlerFunc {
-	return a.withEnv(func(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-		if err := validatePathParams(r); err != nil {
-			writeError(w, err)
-			return
-		}
-		h(w, r, env)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), environmentKey, env)))
 	})
 }
 
+// pathParamNames lists every path parameter that is forwarded into an upstream
+// URL. validatePathParams rejects values outside the allowlist, so a new route
+// with a new parameter must add it here; TestRouteCoverage enforces that.
 var pathParamNames = []string{"server_id", "config_setting_name", "zone_id", "cryptokey_id", "tsigkey_id"}
 
-func validatePathParams(r *http.Request) error {
-	for _, name := range pathParamNames {
-		value := r.PathValue(name)
-		if value == "" {
-			continue
+// guardPathParams validates path parameters before any PowerDNS handler runs.
+func (a *App) guardPathParams(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, name := range pathParamNames {
+			value := chi.URLParam(r, name)
+			if value == "" {
+				continue
+			}
+			if !utils.CheckPathParamSafe(value) {
+				logging.Log.Warn("Rejected path parameter", "name", name, "value", value)
+				writeError(w, httperr.InvalidPathParam(name))
+				return
+			}
 		}
-		if !utils.CheckPathParamSafe(value) {
-			logging.Log.Warn("Rejected path parameter", "name", name, "value", value)
-			return httperr.InvalidPathParam(name)
+		if serverID := chi.URLParam(r, "server_id"); serverID != "" && serverID != "localhost" {
+			writeError(w, httperr.ServerNotFound())
+			return
 		}
-	}
-	if serverID := r.PathValue("server_id"); serverID != "" && serverID != "localhost" {
-		return httperr.ServerNotFound()
-	}
-	return nil
+		next.ServeHTTP(w, r)
+	})
 }
 
 // forward proxies a request to the upstream and streams the reply.
@@ -199,9 +215,9 @@ func zoneUpstreamPath(serverID, zoneID string) string {
 	return fmt.Sprintf("/api/v1/servers/%s/zones/%s", serverID, zoneID)
 }
 
-// recoverPanic converts unexpected panics into PowerDNS error responses and
+// recoverer converts unexpected panics into PowerDNS error responses and
 // forwards them to the optional PanicReporter (e.g. Sentry).
-func (a *App) recoverPanic(next http.Handler) http.Handler {
+func (a *App) recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {

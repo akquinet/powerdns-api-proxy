@@ -35,7 +35,9 @@ toolchain (or the Makefile).
   Zone/record regexes are anchored to a full match at load time.
 - Path parameters are validated before forwarding, and the server id must be
   `localhost`; anything else returns 404.
-- The Swagger UI is embedded from `internal/server/web` via `go:embed`.
+- Routing uses chi (Go 1.22-style patterns are not used); the Swagger UI
+  assets come from `github.com/swaggo/files/v2` — only `index.html` and
+  `openapi.json` are embedded from `internal/server/web`.
 - `cryptokeys` and `tsigkeys` payloads are redacted from upstream and audit logs
   by path segment.
 - `make lint` needs `golangci-lint` installed; otherwise it falls back to

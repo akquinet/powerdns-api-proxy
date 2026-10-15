@@ -3,23 +3,27 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/akquinet/powerdns-api-proxy/internal/config"
 	"github.com/akquinet/powerdns-api-proxy/internal/upstream"
 )
 
-// TestRouteCoverage guards the two conventions every route must follow:
+// TestRouteCoverage enforces the routing conventions:
 //
-//   - every path parameter is known to validatePathParams, so unknown
-//     parameters can never skip the injection check;
-//   - every /api/v1 route goes through withPDNS, so token authentication and
-//     path-parameter validation cannot be forgotten for a new route.
+//   - every path parameter forwarded into an upstream URL is known to
+//     guardPathParams, so unknown parameters can never skip the injection
+//     check;
+//   - every /api/v1 endpoint comes from apiV1Routes and carries both the auth
+//     and the path-param guard middleware.
 //
-// Adding a route provides no protection on its own: update the expectation
-// here instead of connecting a new handler directly to the mux.
+// Adding a route with a new parameter provides no protection on its own:
+// register it in apiV1Routes and add the parameter to pathParamNames.
 func TestRouteCoverage(t *testing.T) {
 	up := "http://pdns.example"
 	app := &App{
@@ -29,37 +33,64 @@ func TestRouteCoverage(t *testing.T) {
 		},
 		Conn: upstream.New(up, "token", true),
 	}
-	_ = app.router()
 
-	if len(app.routes) == 0 {
-		t.Fatal("no routes registered; router broken?")
-	}
+	authPtr := reflect.ValueOf(app.auth).Pointer()
+	guardPtr := reflect.ValueOf(app.guardPathParams).Pointer()
 
-	param := regexp.MustCompile(`\{([a-zA-Z_][a-zA-Z0-9_]*)(\.\.\.)?\}`)
+	param := regexp.MustCompile(`\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
 	known := map[string]bool{}
 	for _, name := range pathParamNames {
 		known[name] = true
 	}
 
-	for _, r := range app.routes {
-		for _, match := range param.FindAllStringSubmatch(r.pattern, -1) {
-			if match[2] != "" {
-				// Wildcard segments (e.g. {path...}) only serve local
-				// content and are never formatted into an upstream URL.
-				continue
-			}
-			if _, ok := known[match[1]]; !ok {
-				t.Errorf("route %q uses parameter %q not covered by pathParamNames", r.pattern, match[1])
+	fromTable := map[string]bool{}
+	for _, rt := range app.apiV1Routes() {
+		full := "/api/v1" + rt.pattern
+		fromTable[rt.method+" "+full] = true
+		for _, match := range param.FindAllStringSubmatch(full, -1) {
+			if !known[match[1]] {
+				t.Errorf("apiV1Routes entry %s %s uses parameter %q not covered by pathParamNames", rt.method, full, match[1])
 			}
 		}
-		if strings.HasPrefix(r.pattern, "/api/v1/") && r.wrapper != "pdns" {
-			t.Errorf("route %q is guarded by %q, want pdns", r.pattern, r.wrapper)
+	}
+
+	seen := 0
+	err := chi.Walk(app.router(), func(method, route string, _ http.Handler, mws ...func(http.Handler) http.Handler) error {
+		seen++
+		if strings.HasPrefix(route, "/api/v1/") {
+			if !hasMiddleware(mws, authPtr) {
+				t.Errorf("route %s %s is missing the auth middleware", method, route)
+			}
+			if !hasMiddleware(mws, guardPtr) {
+				t.Errorf("route %s %s is missing guardPathParams", method, route)
+			}
+			if !fromTable[method+" "+route] {
+				t.Errorf("route %s %s is not registered via apiV1Routes", method, route)
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking routes: %v", err)
+	}
+	if seen == 0 {
+		t.Fatal("no routes registered; router broken?")
 	}
 }
 
+// hasMiddleware reports whether the route's middleware chain contains fn,
+// compared by function pointer.
+func hasMiddleware(mws []func(http.Handler) http.Handler, ptr uintptr) bool {
+	for _, mw := range mws {
+		if reflect.ValueOf(mw).Pointer() == ptr {
+			return true
+		}
+	}
+	return false
+}
+
 // TestPathParamsValidatedFromPattern complements TestRouteCoverage by checking
-// a concrete injected value end-to-end through the real mux.
+// a concrete injected value end-to-end through the real router.
 func TestPathParamsValidatedFromPattern(t *testing.T) {
 	up := "http://pdns.example"
 	yaml := `pdns_api_url: "` + up + `"
@@ -94,7 +125,7 @@ func TestRecoverPanicReportsPanic(t *testing.T) {
 		PanicReporter: func(r *http.Request, recovered any) { reported = recovered == "boom" },
 	}
 
-	h := app.recoverPanic(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	h := app.recoverer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("boom")
 	}))
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)

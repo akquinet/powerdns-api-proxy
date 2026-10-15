@@ -7,51 +7,54 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/akquinet/powerdns-api-proxy/internal/config"
 	"github.com/akquinet/powerdns-api-proxy/internal/httperr"
 	"github.com/akquinet/powerdns-api-proxy/internal/logging"
 	"github.com/akquinet/powerdns-api-proxy/internal/perm"
 )
 
-func (a *App) handleGetServers(w http.ResponseWriter, r *http.Request, env *config.Environment) {
+func (a *App) handleGetServers(w http.ResponseWriter, r *http.Request) {
 	a.forward(w, r, http.MethodGet, "/api/v1/servers", nil, nil)
 }
 
-func (a *App) handleGetServer(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	serverID := r.PathValue("server_id")
+func (a *App) handleGetServer(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodGet, fmt.Sprintf("/api/v1/servers/%s", serverID), nil, nil)
 }
 
-func (a *App) handleGetConfig(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	if !perm.ConfigAllowed(env) {
+func (a *App) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	if !perm.ConfigAllowed(envFrom(r)) {
 		writeError(w, httperr.RessourceNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodGet, fmt.Sprintf("/api/v1/servers/%s/config", serverID), nil, nil)
 }
 
-func (a *App) handleGetConfigSetting(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	if !perm.ConfigAllowed(env) {
+func (a *App) handleGetConfigSetting(w http.ResponseWriter, r *http.Request) {
+	if !perm.ConfigAllowed(envFrom(r)) {
 		writeError(w, httperr.RessourceNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
-	name := r.PathValue("config_setting_name")
+	serverID := chi.URLParam(r, "server_id")
+	name := chi.URLParam(r, "config_setting_name")
 	a.forward(w, r, http.MethodGet, fmt.Sprintf("/api/v1/servers/%s/config/%s", serverID, name), nil, nil)
 }
 
-func (a *App) handleGetStatistics(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	if !perm.StatisticsAllowed(env) {
+func (a *App) handleGetStatistics(w http.ResponseWriter, r *http.Request) {
+	if !perm.StatisticsAllowed(envFrom(r)) {
 		writeError(w, httperr.RessourceNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodGet, fmt.Sprintf("/api/v1/servers/%s/statistics", serverID), nil, nil)
 }
 
-func (a *App) handleGetZones(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	serverID := r.PathValue("server_id")
+func (a *App) handleGetZones(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
+	serverID := chi.URLParam(r, "server_id")
 	resp, err := a.Conn.Request(r.Context(), http.MethodGet,
 		fmt.Sprintf("/api/v1/servers/%s/zones", serverID), r.URL.Query(), nil)
 	if err != nil {
@@ -85,7 +88,8 @@ func (a *App) handleGetZones(w http.ResponseWriter, r *http.Request, env *config
 	writeJSON(w, resp.StatusCode, filtered)
 }
 
-func (a *App) handleCreateZone(w http.ResponseWriter, r *http.Request, env *config.Environment) {
+func (a *App) handleCreateZone(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
 	body := readBody(r)
 	var payload struct {
 		Name string `json:"name"`
@@ -101,23 +105,25 @@ func (a *App) handleCreateZone(w http.ResponseWriter, r *http.Request, env *conf
 		writeError(w, httperr.ZoneAdminNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodPost, fmt.Sprintf("/api/v1/servers/%s/zones", serverID), nil, body)
 }
 
-func (a *App) handleGetZone(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	zoneID := r.PathValue("zone_id")
+func (a *App) handleGetZone(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
+	zoneID := chi.URLParam(r, "zone_id")
 	if !perm.ZoneAllowed(env, zoneID) {
 		logging.Log.Info("Zone not allowed", "zone", zoneID, "environment", env.Name)
 		writeError(w, httperr.ZoneNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodGet, zoneUpstreamPath(serverID, zoneID), r.URL.Query(), nil)
 }
 
-func (a *App) handlePutZone(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	zoneID := r.PathValue("zone_id")
+func (a *App) handlePutZone(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
+	zoneID := chi.URLParam(r, "zone_id")
 	if !perm.ZoneAllowed(env, zoneID) {
 		writeError(w, httperr.ZoneNotAllowed())
 		return
@@ -126,12 +132,13 @@ func (a *App) handlePutZone(w http.ResponseWriter, r *http.Request, env *config.
 		writeError(w, httperr.ZoneAdminNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodPut, zoneUpstreamPath(serverID, zoneID), nil, readBody(r))
 }
 
-func (a *App) handlePatchZone(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	zoneID := r.PathValue("zone_id")
+func (a *App) handlePatchZone(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
+	zoneID := chi.URLParam(r, "zone_id")
 	if !perm.ZoneAllowed(env, zoneID) {
 		logging.Log.Info("Zone not allowed", "zone", zoneID, "environment", env.Name)
 		writeError(w, httperr.ZoneNotAllowed())
@@ -152,37 +159,40 @@ func (a *App) handlePatchZone(w http.ResponseWriter, r *http.Request, env *confi
 		writeError(w, err)
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodPatch, zoneUpstreamPath(serverID, zoneID), nil, body)
 }
 
-func (a *App) handleDeleteZone(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	zoneID := r.PathValue("zone_id")
+func (a *App) handleDeleteZone(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
+	zoneID := chi.URLParam(r, "zone_id")
 	if !perm.ZoneAdmin(env, zoneID) {
 		writeError(w, httperr.ZoneNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodDelete, zoneUpstreamPath(serverID, zoneID), nil, nil)
 }
 
-func (a *App) handleNotify(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	zoneID := r.PathValue("zone_id")
+func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
+	zoneID := chi.URLParam(r, "zone_id")
 	if !perm.ZoneAllowed(env, zoneID) {
 		writeError(w, httperr.ZoneNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodPut, zoneUpstreamPath(serverID, zoneID)+"/notify", nil, nil)
 }
 
-func (a *App) handleRectify(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	zoneID := r.PathValue("zone_id")
+func (a *App) handleRectify(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
+	zoneID := chi.URLParam(r, "zone_id")
 	if !perm.ZoneAllowed(env, zoneID) {
 		writeError(w, httperr.ZoneNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodPut, zoneUpstreamPath(serverID, zoneID)+"/rectify", nil, nil)
 }
 
@@ -190,7 +200,8 @@ var validObjectTypes = map[string]struct{}{
 	"all": {}, "zone": {}, "record": {}, "comment": {},
 }
 
-func (a *App) handleSearchData(w http.ResponseWriter, r *http.Request, env *config.Environment) {
+func (a *App) handleSearchData(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
 	query := r.URL.Query()
 	q := query.Get("q")
 	if q == "" {
@@ -220,7 +231,7 @@ func (a *App) handleSearchData(w http.ResponseWriter, r *http.Request, env *conf
 		writeError(w, httperr.SearchNotAllowed())
 		return
 	}
-	serverID := r.PathValue("server_id")
+	serverID := chi.URLParam(r, "server_id")
 	a.forward(w, r, http.MethodGet,
 		fmt.Sprintf("/api/v1/servers/%s/search-data", serverID), params, nil)
 }

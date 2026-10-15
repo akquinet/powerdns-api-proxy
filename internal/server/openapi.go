@@ -2,37 +2,36 @@ package server
 
 import (
 	"embed"
-	"io/fs"
 	"net/http"
 )
 
-//go:embed web
-var webFS embed.FS
+// docsAssets holds the index page and the hand-written OpenAPI spec. The
+// Swagger UI assets themselves come from the swaggo/files module (pinned in
+// go.mod), so no third-party blobs are vendored in this repository.
+//
+//go:embed web/index.html web/openapi.json
+var docsAssets embed.FS
 
-// handleDocs serves the embedded Swagger UI and its OpenAPI spec. The router
-// only registers it when API docs are enabled.
-func (a *App) handleDocs(w http.ResponseWriter, r *http.Request) {
-	switch name := r.PathValue("path"); name {
-	case "":
-		a.serveDocFile(w, "web/index.html", "text/html; charset=utf-8")
-	case "openapi.json":
-		a.serveDocFile(w, "web/openapi.json", "application/json")
-	case "swagger-ui.css":
-		a.serveDocFile(w, "web/swagger-ui.css", "text/css; charset=utf-8")
-	case "swagger-ui-bundle.js":
-		a.serveDocFile(w, "web/swagger-ui-bundle.js", "application/javascript")
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-func (a *App) serveDocFile(w http.ResponseWriter, path, contentType string) {
-	data, err := fs.ReadFile(webFS, path)
+// handleDocsIndex serves the Swagger UI page.
+func (a *App) handleDocsIndex(w http.ResponseWriter, r *http.Request) {
+	data, err := docsAssets.ReadFile("web/index.html")
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// handleOpenAPI serves the proxy's OpenAPI specification.
+func (a *App) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	data, err := docsAssets.ReadFile("web/openapi.json")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }

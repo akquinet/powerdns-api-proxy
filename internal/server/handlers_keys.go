@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/akquinet/powerdns-api-proxy/internal/config"
 	"github.com/akquinet/powerdns-api-proxy/internal/httperr"
 	"github.com/akquinet/powerdns-api-proxy/internal/logging"
@@ -18,8 +20,7 @@ type keyedResource struct {
 	allowed func(env *config.Environment, r *http.Request) bool
 	// base builds the collection's upstream path.
 	base func(r *http.Request) string
-	// keyParam is the path parameter naming a single item; empty for
-	// collection-only resources.
+	// keyParam is the path parameter naming a single item.
 	keyParam string
 	// logName is used in denial log lines.
 	logName string
@@ -27,10 +28,10 @@ type keyedResource struct {
 
 var cryptokeysResource = keyedResource{
 	allowed: func(env *config.Environment, r *http.Request) bool {
-		return perm.CryptokeysAllowed(env, r.PathValue("zone_id"))
+		return perm.CryptokeysAllowed(env, chi.URLParam(r, "zone_id"))
 	},
 	base: func(r *http.Request) string {
-		return zoneUpstreamPath(r.PathValue("server_id"), r.PathValue("zone_id")) + "/cryptokeys"
+		return zoneUpstreamPath(chi.URLParam(r, "server_id"), chi.URLParam(r, "zone_id")) + "/cryptokeys"
 	},
 	keyParam: "cryptokey_id",
 	logName:  "CryptoKeys",
@@ -41,7 +42,7 @@ var tsigkeysResource = keyedResource{
 		return perm.TsigkeysAllowed(env)
 	},
 	base: func(r *http.Request) string {
-		return fmt.Sprintf("/api/v1/servers/%s/tsigkeys", r.PathValue("server_id"))
+		return fmt.Sprintf("/api/v1/servers/%s/tsigkeys", chi.URLParam(r, "server_id"))
 	},
 	keyParam: "tsigkey_id",
 	logName:  "TSIGKeys",
@@ -51,8 +52,13 @@ var tsigkeysResource = keyedResource{
 // withKeyID appends the item identifier to the path; withBody forwards the
 // request body. The forwarded HTTP method is the request method of the
 // matched route.
-func (a *App) handleKeyed(res keyedResource, withKeyID, withBody bool) envHandler {
-	return func(w http.ResponseWriter, r *http.Request, env *config.Environment) {
+func (a *App) handleKeyed(res keyedResource, withKeyID, withBody bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		env := envFrom(r)
+		if env == nil {
+			writeError(w, httperr.NotAuthorized())
+			return
+		}
 		if !res.allowed(env, r) {
 			logging.Log.Info(res.logName+" not allowed", "environment", env.Name)
 			writeError(w, httperr.ZoneNotAllowed())
@@ -60,7 +66,7 @@ func (a *App) handleKeyed(res keyedResource, withKeyID, withBody bool) envHandle
 		}
 		path := res.base(r)
 		if withKeyID {
-			path += "/" + r.PathValue(res.keyParam)
+			path += "/" + chi.URLParam(r, res.keyParam)
 		}
 		var body []byte
 		if withBody {

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 
+	chimw "github.com/go-chi/chi/v5/middleware"
+
 	"github.com/akquinet/powerdns-api-proxy/internal/config"
 	"github.com/akquinet/powerdns-api-proxy/internal/logging"
 )
@@ -72,11 +74,11 @@ func (m *Audit) Wrap(next http.Handler) http.Handler {
 			}
 		}
 
-		rec := NewResponseRecorder(w)
+		rec := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(rec, r)
 
 		path := strings.ReplaceAll(r.URL.Path, "/api/v1/servers/localhost", "")
-		logging.Log.Audit(environmentName, r.Method, path, rec.Status, payload, queryParams, clientIP)
+		logging.Log.Audit(environmentName, r.Method, path, status(rec.Status()), payload, queryParams, clientIP)
 	})
 }
 

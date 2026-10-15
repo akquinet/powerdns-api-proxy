@@ -60,8 +60,8 @@ func (a *App) metricsHandler() http.Handler {
 	})
 }
 
-func (a *App) handleAllowed(w http.ResponseWriter, r *http.Request, env *config.Environment) {
-	writeJSON(w, http.StatusOK, map[string]any{"zones": env.Zones})
+func (a *App) handleAllowed(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"zones": envFrom(r).Zones})
 }
 
 type zoneAllowedResponse struct {
@@ -70,7 +70,8 @@ type zoneAllowedResponse struct {
 	Config  *config.Zone `json:"config"`
 }
 
-func (a *App) handleZoneAllowed(w http.ResponseWriter, r *http.Request, env *config.Environment) {
+func (a *App) handleZoneAllowed(w http.ResponseWriter, r *http.Request) {
+	env := envFrom(r)
 	zone := r.URL.Query().Get("zone")
 	if zone == "" {
 		writeError(w, httperr.New(http.StatusUnprocessableEntity, "Missing zone parameter"))
@@ -88,7 +89,7 @@ func (a *App) handleZoneAllowed(w http.ResponseWriter, r *http.Request, env *con
 	writeJSON(w, http.StatusOK, zoneAllowedResponse{Zone: zone, Allowed: true, Config: zoneConfig})
 }
 
-func (a *App) handleAPIRoot(w http.ResponseWriter, r *http.Request, env *config.Environment) {
+func (a *App) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []map[string]any{
 		{
 			"url":           "/api/v1",

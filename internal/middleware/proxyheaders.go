@@ -6,40 +6,34 @@ import (
 	"strings"
 )
 
-// ProxyHeaders rewrites the client address from X-Forwarded-For, but only when
-// the immediate peer is trusted. Untrusted peers and their headers are ignored.
-type ProxyHeaders struct {
-	trusted *trustedSet
-	next    http.Handler
-}
-
-// NewProxyHeaders builds the middleware from a FORWARDED_ALLOW_IPS-style spec.
-func NewProxyHeaders(forwardedAllowIPs string, next http.Handler) *ProxyHeaders {
-	return &ProxyHeaders{trusted: parseTrusted(forwardedAllowIPs), next: next}
-}
-
-// ServeHTTP implements http.Handler.
-func (m *ProxyHeaders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	peerHost, peerPort, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		peerHost = r.RemoteAddr
-	}
-
-	if m.trusted.trust(peerHost) {
-		if client := m.clientFromForwarded(r.Header.Get("X-Forwarded-For")); client != "" {
-			if peerPort != "" {
-				r.RemoteAddr = net.JoinHostPort(client, peerPort)
-			} else {
-				r.RemoteAddr = client
+// ProxyHeaders returns middleware that rewrites the client address from
+// X-Forwarded-For, but only when the immediate peer is trusted. Untrusted
+// peers and their headers are ignored.
+func ProxyHeaders(forwardedAllowIPs string) func(http.Handler) http.Handler {
+	trusted := parseTrusted(forwardedAllowIPs)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			peerHost, peerPort, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				peerHost = r.RemoteAddr
 			}
-		}
+			if trusted.trust(peerHost) {
+				if client := clientFromForwarded(trusted, r.Header.Get("X-Forwarded-For")); client != "" {
+					if peerPort != "" {
+						r.RemoteAddr = net.JoinHostPort(client, peerPort)
+					} else {
+						r.RemoteAddr = client
+					}
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
-	m.next.ServeHTTP(w, r)
 }
 
 // clientFromForwarded walks the X-Forwarded-For chain from right to left and
 // returns the first hop that is not a trusted proxy.
-func (m *ProxyHeaders) clientFromForwarded(header string) string {
+func clientFromForwarded(trusted *trustedSet, header string) string {
 	if header == "" {
 		return ""
 	}
@@ -49,7 +43,7 @@ func (m *ProxyHeaders) clientFromForwarded(header string) string {
 		if hop == "" {
 			continue
 		}
-		if !m.trusted.trust(hop) {
+		if !trusted.trust(hop) {
 			return hop
 		}
 	}

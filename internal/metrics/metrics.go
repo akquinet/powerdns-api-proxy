@@ -8,10 +8,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/akquinet/powerdns-api-proxy/internal/config"
-	"github.com/akquinet/powerdns-api-proxy/internal/middleware"
 )
 
 var highrBuckets = []float64{
@@ -66,31 +67,42 @@ func New(reg prometheus.Registerer) *Metrics {
 }
 
 // Middleware records metrics for every request passing through it.
-func (m *Metrics) Middleware(cfg *config.Config, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		rec := middleware.NewResponseRecorder(w)
-		next.ServeHTTP(rec, r)
-		duration := time.Since(start).Seconds()
+func (m *Metrics) Middleware(cfg *config.Config) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			rec := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
+			next.ServeHTTP(rec, r)
+			duration := time.Since(start).Seconds()
 
-		handler := r.Pattern
-		if handler == "" {
-			handler = "none"
-		}
-		status := strconv.Itoa(rec.Status)
+			// The route pattern is only populated once the router has matched,
+			// so it is read after the handler ran.
+			handler := ""
+			if routeCtx := chi.RouteContext(r.Context()); routeCtx != nil {
+				handler = routeCtx.RoutePattern()
+			}
+			if handler == "" {
+				handler = "none"
+			}
+			code := rec.Status()
+			if code == 0 {
+				code = http.StatusOK
+			}
+			status := strconv.Itoa(code)
 
-		m.requests.WithLabelValues(r.Method, status, handler).Inc()
-		reqLen := r.ContentLength
-		if reqLen < 0 {
-			reqLen = 0
-		}
-		m.reqSize.WithLabelValues(handler).Observe(float64(reqLen))
-		m.respSize.WithLabelValues(handler).Observe(float64(rec.Written))
-		m.latencyHigh.Observe(duration)
-		m.latencyLow.WithLabelValues(r.Method, handler).Observe(duration)
+			m.requests.WithLabelValues(r.Method, status, handler).Inc()
+			reqLen := r.ContentLength
+			if reqLen < 0 {
+				reqLen = 0
+			}
+			m.reqSize.WithLabelValues(handler).Observe(float64(reqLen))
+			m.respSize.WithLabelValues(handler).Observe(float64(rec.BytesWritten()))
+			m.latencyHigh.Observe(duration)
+			m.latencyLow.WithLabelValues(r.Method, handler).Observe(duration)
 
-		if env := cfg.EnvironmentForToken(r.Header.Get("X-API-Key")); env != nil {
-			m.envRequests.WithLabelValues(env.Name, r.Method, status, handler).Inc()
-		}
-	})
+			if env := cfg.EnvironmentForToken(r.Header.Get("X-API-Key")); env != nil {
+				m.envRequests.WithLabelValues(env.Name, r.Method, status, handler).Inc()
+			}
+		})
+	}
 }
