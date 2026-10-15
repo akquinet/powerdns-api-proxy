@@ -11,30 +11,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - uses: actions/setup-go@v6
         with:
-          python-version: '3.14'
-      - uses: astral-sh/setup-uv@v6
+          go-version: '1.27'
 
-      - name: Setup
-        run: make setup
+      - name: Build
+        run: go build ./...
 
       - name: Run tests
-        run: make unit
+        run: go test ./... -v
+
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - uses: actions/setup-go@v6
         with:
-          python-version: '3.14'
-      - uses: astral-sh/setup-uv@v6
+          go-version: '1.27'
 
-      - name: Setup
-        run: make setup
+      - name: go vet
+        run: go vet ./...
 
-      - name: Run linters
-        run: make lint
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
   container:
     runs-on: ubuntu-latest
     needs:
@@ -48,10 +50,8 @@ jobs:
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
-          # list of Docker images to use as base name for tags
           images: |
             ghcr.io/akquinet/powerdns-api-proxy
-          # generate Docker tags based on the following events/attributes
           tags: |
             type=schedule
             type=ref,event=branch
@@ -76,6 +76,8 @@ jobs:
           push: ${{ github.event_name == 'push' && (startsWith(github.ref, 'refs/tags') || github.ref == 'refs/heads/main') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version || 'dev' }}
 
   semantic-release:
     runs-on: ubuntu-latest

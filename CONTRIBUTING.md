@@ -48,16 +48,17 @@ If in doubt, open an issue. It costs a little time and saves a lot of review.
 
 ## Development setup
 
+Requires Go 1.27.
+
 ```bash
-virtualenv .venv && source .venv/bin/activate
-make setup
+go mod download
 ```
 
 ## Running tests
 
 ```bash
 make unit            # unit tests
-make test            # unit + pre-commit + integration
+make test            # lint + unit
 ```
 
 Please make sure `make test` passes before opening a pull request.
