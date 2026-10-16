@@ -2,7 +2,7 @@
 on:
   push:
     branches:
-      - "*"
+      - "**"
     tags:
       - "v*.*.*"
 
@@ -21,6 +21,9 @@ jobs:
 
       - name: Run tests
         run: make unit
+
+      - name: Run e2e tests
+        run: make e2e
   lint:
     runs-on: ubuntu-latest
     steps:

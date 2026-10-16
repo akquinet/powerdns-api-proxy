@@ -16,13 +16,16 @@ fmt: ## format the code
 	uv run ruff check --fix .
 	uv run ruff format .
 
-test: lint unit integration ## Run all tests
+test: lint unit integration e2e ## Run all tests
 
 unit: ## run unit tests
 	uv run pytest -vvl tests/unit/ --showlocals
 
 integration: ## run integration tests
 	uv run pytest -vvl --setup-show -vvl tests/integration/ --showlocals || test $$? -eq 5
+
+e2e: ## run end-to-end tests against a real uvicorn proxy and a fake upstream
+	uv run pytest -vvl tests/e2e/ --showlocals
 
 run: ## run project
 	uv run python -m powerdns_api_proxy --reload
