@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from powerdns_api_proxy.config import config_holder
 from powerdns_api_proxy.models import (
     ProxyConfig,
     ProxyConfigEnvironment,
@@ -52,8 +53,7 @@ rrsets = {
 def upstream() -> Generator[AsyncMock, None, None]:
     pdns = AsyncMock()
     with (
-        patch("powerdns_api_proxy.config.load_config", return_value=proxy_config),
-        patch("powerdns_api_proxy.proxy.config", proxy_config),
+        patch.object(config_holder, "_config", proxy_config),
         patch("powerdns_api_proxy.proxy.pdns", pdns),
         patch(
             "powerdns_api_proxy.proxy.handle_pdns_response",

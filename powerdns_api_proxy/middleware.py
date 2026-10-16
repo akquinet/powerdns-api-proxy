@@ -4,10 +4,8 @@ import os
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from powerdns_api_proxy.config import get_environment_for_token, load_config
+from powerdns_api_proxy.config import config_holder, get_environment_for_token
 from powerdns_api_proxy.logging import logger
-
-_config = load_config()
 
 AUDIT_LOG_CLIENT_IP = os.getenv("AUDIT_LOG_CLIENT_IP", "false").lower() == "true"
 
@@ -26,7 +24,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         try:
             token = request.headers.get("X-API-Key", "")
             if token:
-                environment = get_environment_for_token(_config, token)
+                environment = get_environment_for_token(config_holder.get(), token)
                 environment_name = environment.name
         except Exception:
             pass

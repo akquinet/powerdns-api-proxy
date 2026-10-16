@@ -15,11 +15,13 @@ tools through `uv run` (or the Makefile) so they use the locked environment.
 
 ## Gotchas
 
-- Config is loaded at import time (`proxy.py`, `middleware.py`, `metrics.py`
-  call `load_config()` at module level). `PROXY_CONFIG_PATH` must point at a
-  valid YAML config before importing `powerdns_api_proxy.proxy` (tests set it
-  manually before import, see tests/unit/middleware_test.py;
-  `config-example.yml` works).
+- Config is held by the `config_holder` singleton in `config.py`; consumers
+  read it per request and SIGHUP swaps it (invalid files are logged and
+  ignored). `proxy.py` loads it at import time, so `PROXY_CONFIG_PATH` must
+  point at a valid YAML config before importing `powerdns_api_proxy.proxy`
+  (tests set it manually before import, see tests/unit/middleware_test.py;
+  `config-example.yml` works). Tests swap configs by patching
+  `config_holder._config`.
 - The lint gate is `make lint`, which runs [prek](https://prek.j178.dev/) on
   `.pre-commit-config.yaml` (a drop-in, faster pre-commit; ruff, pyupgrade,
   mypy, hadolint, and pre-commit-hooks). The `hadolint-docker` hook needs a
