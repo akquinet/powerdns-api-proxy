@@ -1,6 +1,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from powerdns_api_proxy.config import load_config
 
 
@@ -71,3 +73,64 @@ environments:
         config_path = Path(f.name)
         config = load_config(config_path)
         assert config.index_enabled is False
+
+
+def test_read_only_zone_with_admin_rejected_from_yaml():
+    config_content = """
+pdns_api_url: "https://test.example.com"
+pdns_api_token: "testtoken123"
+environments:
+  - name: "Test"
+    token_sha512: "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"
+    zones:
+      - name: "example.com"
+        read_only: true
+        admin: true
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as f:
+        f.write(config_content)
+        f.flush()
+
+        with pytest.raises(ValueError, match="read_only"):
+            load_config(Path(f.name))
+
+
+def test_read_only_zone_with_cryptokeys_rejected_from_yaml():
+    config_content = """
+pdns_api_url: "https://test.example.com"
+pdns_api_token: "testtoken123"
+environments:
+  - name: "Test"
+    token_sha512: "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"
+    zones:
+      - name: "example.com"
+        read_only: true
+        cryptokeys: true
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as f:
+        f.write(config_content)
+        f.flush()
+
+        with pytest.raises(ValueError, match="read_only"):
+            load_config(Path(f.name))
+
+
+def test_admin_zone_with_global_read_only_accepted_from_yaml():
+    config_content = """
+pdns_api_url: "https://test.example.com"
+pdns_api_token: "testtoken123"
+environments:
+  - name: "Test"
+    token_sha512: "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"
+    global_read_only: true
+    zones:
+      - name: "example.com"
+        admin: true
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as f:
+        f.write(config_content)
+        f.flush()
+
+        config = load_config(Path(f.name))
+        assert config.environments[0].global_read_only is True
+        assert config.environments[0].zones[0].admin is True

@@ -136,7 +136,9 @@ dot is ignored on both sides.
 
 Additional zone options:
 
-- `read_only: true` removes write access within the zone entirely.
+- `read_only: true` removes write access within the zone entirely. It cannot be
+  combined with `admin: true` or `cryptokeys: true`, since those enable writes;
+  a config that does so is rejected at startup.
 - `subzones: true` applies the same permissions to all subzones.
 - `regex: true` treats `name` as a regex, e.g. all zones ending in
   `.example.com`:
@@ -288,7 +290,7 @@ environments:
 | `regex` | `false` | Treat `name` as a regex |
 | `records` | `[]` | Record names with write access |
 | `regex_records` | `[]` | Record regexes with write access |
-| `read_only` | `false` | Disable all write access within the zone |
+| `read_only` | `false` | Disable all write access within the zone; cannot be combined with `admin` or `cryptokeys` |
 | `admin` | `false` | Allow creating and deleting the zone |
 | `subzones` | `false` | Apply the permissions to all subzones |
 | `cryptokeys` | `false` | Allow DNSSEC key management in the zone |
