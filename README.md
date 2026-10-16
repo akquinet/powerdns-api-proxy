@@ -194,7 +194,8 @@ PowerDNS error message; other upstream failures are reported as `500`.
 | --- | --- | --- | --- |
 | GET, HEAD | `/` | none | Index page; returns `404` when `index_enabled: false` |
 | GET | `/docs` | none | Swagger UI; disabled with `api_docs_enabled: false` |
-| GET | `/health/pdns` | none | Checks the upstream PowerDNS API (`200` or `500`) |
+| GET | `/health` | none | Liveness probe; always `200`, does not call upstream |
+| GET | `/health/pdns` | token | Checks the upstream PowerDNS API (`200` or `500`) |
 | GET | `/metrics` | basic auth | Prometheus metrics |
 | GET | `/info/allowed` | token | Zones the token may access |
 | GET | `/info/zone-allowed?zone=<zone>` | token | Whether a zone is allowed and which entry matches |

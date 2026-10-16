@@ -162,7 +162,17 @@ async def hello():
         return HTMLResponse(status_code=404)
 
 
-@router_health.get("/pdns", status_code=HTTPStatus.OK)
+@router_health.get("", status_code=HTTPStatus.OK)
+async def health():
+    """Liveness probe. Does not call upstream and requires no authentication."""
+    return {"status": "ok"}
+
+
+@router_health.get(
+    "/pdns",
+    status_code=HTTPStatus.OK,
+    dependencies=[Depends(dependency_check_token_defined)],
+)
 async def health_upstream_pdns_api(response: Response):
     """Checks connection to Upstream PowerDNS API."""
     logger.info("Checking upstream pdns api health")
