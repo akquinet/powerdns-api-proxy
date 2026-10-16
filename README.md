@@ -261,7 +261,7 @@ variable.
 | `name` | required | Name of the environment; also the metrics basic-auth username |
 | `token_sha512` | required | SHA-512 hash of the client token (128 hex characters) |
 | `zones` | `[]` | Zones the token may access |
-| `global_read_only` | `false` | Read access to **all** zones |
+| `global_read_only` | `false` | Read access to **all** zones; zones that are not listed stay read-only |
 | `global_search` | `false` | Access to `/search-data` |
 | `global_cryptokeys` | `false` | DNSSEC key management in all zones |
 | `global_tsigkeys` | `false` | Read and modify TSIG keys |

@@ -1,6 +1,6 @@
 import os
 from collections.abc import Generator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +12,7 @@ from powerdns_api_proxy.models import (
 )
 
 from powerdns_api_proxy.exceptions import NotAuthorizedException
+from powerdns_api_proxy.exceptions import ZoneReadOnlyException
 from powerdns_api_proxy.proxy import app
 
 client = TestClient(app)
@@ -167,6 +168,123 @@ def test_api_put_wrong_token(path, fixture_patch_dummy_config, fixture_patch_pdn
 @pytest.mark.parametrize("path", put_routes)
 def test_api_put_missing_token(path, fixture_patch_dummy_config, fixture_patch_pdns):
     _token_missing_request(client, "PUT", path)
+
+
+def _read_only_config() -> ProxyConfig:
+    zone = ProxyConfigZone(name="test.example.com.", read_only=True)
+    environment = ProxyConfigEnvironment(
+        name="Read Only",
+        zones=[zone],
+        token_sha512=dummy_proxy_environment_token_sha512,
+    )
+    return ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+
+
+def _global_read_only_config() -> ProxyConfig:
+    zone = ProxyConfigZone(
+        name="writable.example.com.",
+        records=["writable.example.com."],
+        read_only=False,
+    )
+    environment = ProxyConfigEnvironment(
+        name="Global Read Only With Writable Zone",
+        zones=[zone],
+        token_sha512=dummy_proxy_environment_token_sha512,
+        global_read_only=True,
+    )
+    return ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/servers/localhost/zones/test.example.com./notify",
+        "/api/v1/servers/localhost/zones/test.example.com./rectify",
+    ],
+)
+def test_notify_rectify_rejected_for_read_only_zone(path, fixture_patch_pdns):
+    config = _read_only_config()
+    with (
+        patch("powerdns_api_proxy.proxy.config", config),
+        patch("powerdns_api_proxy.config.load_config", return_value=config),
+    ):
+        answer = client.put(path, headers={"X-API-Key": dummy_proxy_environment_token})
+    assert answer.status_code == 403
+    assert answer.json()["error"] == ZoneReadOnlyException().detail
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/servers/localhost/zones/writable.example.com./notify",
+        "/api/v1/servers/localhost/zones/writable.example.com./rectify",
+    ],
+)
+def test_notify_rectify_allowed_for_listed_zone_in_global_read_only(path):
+    pdns_response = MagicMock()
+    pdns_response.raise_for_error.return_value = 204
+    config = _global_read_only_config()
+    with (
+        patch("powerdns_api_proxy.proxy.config", config),
+        patch("powerdns_api_proxy.config.load_config", return_value=config),
+        patch("powerdns_api_proxy.proxy.pdns.put", new_callable=AsyncMock) as put,
+        patch(
+            "powerdns_api_proxy.proxy.handle_pdns_response",
+            new_callable=AsyncMock,
+            return_value=pdns_response,
+        ),
+    ):
+        answer = client.put(path, headers={"X-API-Key": dummy_proxy_environment_token})
+    assert answer.status_code == 204
+    put.assert_awaited_once()
+
+
+def test_patch_allowed_for_listed_zone_in_global_read_only():
+    pdns_response = MagicMock()
+    pdns_response.raise_for_error.return_value = 204
+    payload = {
+        "rrsets": [
+            {
+                "name": "writable.example.com.",
+                "type": "TXT",
+                "changetype": "REPLACE",
+                "ttl": 3600,
+                "records": [{"content": "test", "disabled": False}],
+                "comments": [],
+            }
+        ]
+    }
+    config = _global_read_only_config()
+    with (
+        patch("powerdns_api_proxy.proxy.config", config),
+        patch("powerdns_api_proxy.config.load_config", return_value=config),
+        patch(
+            "powerdns_api_proxy.proxy.pdns.patch", new_callable=AsyncMock
+        ) as patch_call,
+        patch(
+            "powerdns_api_proxy.proxy.handle_pdns_response",
+            new_callable=AsyncMock,
+            return_value=pdns_response,
+        ),
+    ):
+        answer = client.patch(
+            "/api/v1/servers/localhost/zones/writable.example.com.",
+            headers={"X-API-Key": dummy_proxy_environment_token},
+            json=payload,
+        )
+    assert answer.status_code == 204
+    patch_call.assert_awaited_once_with(
+        "/api/v1/servers/localhost/zones/writable.example.com.",
+        payload=payload,
+    )
 
 
 patch_routes = ["/api/v1/servers/localhost/zones/test-zone.example.com."]

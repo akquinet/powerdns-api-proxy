@@ -146,6 +146,15 @@ def check_pdns_zone_admin(environment: ProxyConfigEnvironment, zone: str) -> boo
     return False
 
 
+def check_pdns_zone_writable(environment: ProxyConfigEnvironment, zone: str) -> bool:
+    """Returns True if writes to the zone are allowed in the environment"""
+    try:
+        env_zone = environment.get_zone_if_allowed(zone)
+    except ZoneNotAllowedException:
+        return False
+    return not env_zone.read_only
+
+
 def check_pdns_search_allowed(
     environment: ProxyConfigEnvironment, query: str, object_type: str
 ) -> bool:
