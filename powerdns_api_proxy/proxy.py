@@ -23,6 +23,7 @@ from powerdns_api_proxy.config import (
     check_pdns_statistics_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
+    check_pdns_zone_writable,
     dependency_check_token_defined,
     dependency_metrics_proxy_enabled,
     ensure_rrsets_request_allowed,
@@ -37,6 +38,7 @@ from powerdns_api_proxy.exceptions import (
     ServerNotFoundException,
     ZoneAdminNotAllowedException,
     ZoneNotAllowedException,
+    ZoneReadOnlyException,
     UpstreamException,
 )
 from powerdns_api_proxy.logging import logger
@@ -475,6 +477,9 @@ async def zone_notification(server_id: str, zone_id: str, X_API_Key: str = Heade
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    if not check_pdns_zone_writable(environment, zone_id):
+        logger.info(f"Zone {zone_id} is read only for environment {environment.name}")
+        raise ZoneReadOnlyException()
     resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/notify")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
@@ -499,6 +504,9 @@ async def zone_rectification(
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    if not check_pdns_zone_writable(environment, zone_id):
+        logger.info(f"Zone {zone_id} is read only for environment {environment.name}")
+        raise ZoneReadOnlyException()
     resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/rectify")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()

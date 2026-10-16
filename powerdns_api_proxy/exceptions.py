@@ -13,6 +13,12 @@ class ZoneAdminNotAllowedException(HTTPException):
         self.detail = "Not Zone admin"
 
 
+class ZoneReadOnlyException(HTTPException):
+    def __init__(self):
+        self.status_code = 403
+        self.detail = "Zone is read only"
+
+
 class RecordNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403

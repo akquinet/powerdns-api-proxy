@@ -13,6 +13,7 @@ from powerdns_api_proxy.config import (
     check_pdns_statistics_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
+    check_pdns_zone_writable,
     check_rrset_allowed,
     check_token_defined,
     ensure_rrsets_request_allowed,
@@ -171,6 +172,56 @@ def test_check_pdns_zone_admin_true_subzone():
     dummy_proxy_environment.zones[0].admin = True
     env.zones[0].subzones = True
     assert check_pdns_zone_admin(env, "blablubTest24." + env.zones[0].name)
+
+
+def test_check_pdns_zone_writable():
+    zone = ProxyConfigZone(name="writable.example.com.")
+    env = ProxyConfigEnvironment(
+        name="Test Writable",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[zone],
+    )
+    assert check_pdns_zone_writable(env, zone.name)
+
+
+def test_check_pdns_zone_writable_read_only_zone():
+    zone = ProxyConfigZone(name="readonly.example.com.", read_only=True)
+    env = ProxyConfigEnvironment(
+        name="Test Read Only Zone",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[zone],
+    )
+    assert not check_pdns_zone_writable(env, zone.name)
+
+
+def test_check_pdns_zone_writable_global_read_only_listed_zone():
+    zone = ProxyConfigZone(name="writable.example.com.", read_only=False)
+    env = ProxyConfigEnvironment(
+        name="Test Global Read Only",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[zone],
+        global_read_only=True,
+    )
+    assert check_pdns_zone_writable(env, zone.name)
+
+
+def test_check_pdns_zone_writable_global_read_only_unlisted_zone():
+    env = ProxyConfigEnvironment(
+        name="Test Global Read Only",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[],
+        global_read_only=True,
+    )
+    assert not check_pdns_zone_writable(env, "other.example.com.")
+
+
+def test_check_pdns_zone_writable_not_allowed():
+    env = ProxyConfigEnvironment(
+        name="Test Not Allowed",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[],
+    )
+    assert not check_pdns_zone_writable(env, "other.example.com.")
 
 
 def test_get_zone_config():
