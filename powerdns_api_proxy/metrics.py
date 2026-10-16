@@ -3,9 +3,7 @@ from collections.abc import Callable
 from prometheus_client import REGISTRY, CollectorRegistry, Counter
 from prometheus_fastapi_instrumentator.metrics import Info
 
-from powerdns_api_proxy.config import get_environment_for_token, load_config
-
-config = load_config()
+from powerdns_api_proxy.config import config_holder, get_environment_for_token
 
 
 def http_requests_total_environment(
@@ -30,7 +28,7 @@ def http_requests_total_environment(
         if info and "X-API-Key" in info.request.headers:
             try:
                 environment = get_environment_for_token(
-                    config, info.request.headers["X-API-Key"]
+                    config_holder.get(), info.request.headers["X-API-Key"]
                 )
             except ValueError:
                 return

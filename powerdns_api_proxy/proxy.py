@@ -1,4 +1,6 @@
+import asyncio
 import os
+import signal
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Literal
@@ -16,6 +18,7 @@ from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from powerdns_api_proxy.config import (
+    config_holder,
     check_pdns_search_allowed,
     check_pdns_cryptokeys_allowed,
     check_pdns_tsigkeys_allowed,
@@ -29,7 +32,6 @@ from powerdns_api_proxy.config import (
     ensure_rrsets_request_allowed,
     get_environment_for_token,
     get_only_pdns_zones_allowed,
-    load_config,
 )
 from powerdns_api_proxy.exceptions import (
     InvalidPathParameterException,
@@ -63,21 +65,45 @@ if os.getenv("SENTRY_DSN"):
     )
 
 # load config to verify it is valid
-config = load_config()
+initial_config = config_holder.get()
 
 pdns = PDNSConnector(
-    config.pdns_api_url, config.pdns_api_token, config.pdns_api_verify_ssl
+    initial_config.pdns_api_url,
+    initial_config.pdns_api_token,
+    initial_config.pdns_api_verify_ssl,
 )
+
+
+def _reload_config() -> None:
+    if not config_holder.reload():
+        return
+
+    global pdns
+    config = config_holder.get()
+    pdns = PDNSConnector(
+        config.pdns_api_url, config.pdns_api_token, config.pdns_api_verify_ssl
+    )
 
 
 @asynccontextmanager
 async def _startup(app: FastAPI):
-    yield
+    loop = asyncio.get_running_loop()
+    try:
+        loop.add_signal_handler(signal.SIGHUP, _reload_config)
+    except NotImplementedError:
+        logger.warning("SIGHUP config reload is not supported on this platform")
+    try:
+        yield
+    finally:
+        try:
+            loop.remove_signal_handler(signal.SIGHUP)
+        except NotImplementedError:
+            pass
 
 
 app = FastAPI(title="PowerDNS API Proxy", version="0.1.0", lifespan=_startup)
 
-if not config.api_docs_enabled:
+if not initial_config.api_docs_enabled:
     logger.info("Disabling API docs")
     app = FastAPI(
         title=app.title,
@@ -90,7 +116,7 @@ if not config.api_docs_enabled:
 
 app.add_middleware(AuditMiddleware)
 
-if config.metrics_enabled:
+if initial_config.metrics_enabled:
     instrumentator = Instrumentator(
         should_group_status_codes=False,
     )
@@ -99,7 +125,7 @@ if config.metrics_enabled:
     instrumentator.add(http_requests_total_environment())
     instrumentator.instrument(app)
 
-    if config.metrics_require_auth:
+    if initial_config.metrics_require_auth:
         logger.info("Enabling metrics authentication")
         instrumentator.expose(
             app, dependencies=[Depends(dependency_metrics_proxy_enabled)]
@@ -156,6 +182,7 @@ router_pdns = APIRouter(
 @app.head("/", include_in_schema=False)
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def hello():
+    config = config_holder.get()
     if config.index_enabled:
         return config.index_html
     else:
@@ -182,7 +209,7 @@ async def health_upstream_pdns_api(response: Response):
 async def get_allowed_ressources(X_API_Key: str = Header()):
     """Retrieve allowed requests for the given token."""
     logger.info("Checking allowed ressources for given api key")
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     return ResponseAllowed(zones=environment.zones)
 
 
@@ -196,7 +223,7 @@ async def get_zone_allowed(zone: str, X_API_Key: str = Header()):
     Also returns the zone config that allows the zone.
     """
     logger.debug("Checking if zone is allowed for given api key")
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_zone_allowed(environment, zone):
         return ResponseZoneAllowed(zone=zone, allowed=False)
 
@@ -251,7 +278,7 @@ async def get_configuration(server_id: str, X_API_Key: str = Header()):
 
     Requires global_config permission.
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_config_allowed(environment):
         raise RessourceNotAllowedException()
 
@@ -272,7 +299,7 @@ async def get_configuration_setting(
 
     Requires global_config permission.
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_config_allowed(environment):
         raise RessourceNotAllowedException()
 
@@ -293,7 +320,7 @@ async def get_statistics(server_id: str, X_API_Key: str = Header()):
 
     <https://doc.powerdns.com/authoritative/http-api/statistics.html#get--servers-server_id-statistics>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_statistics_allowed(environment):
         raise RessourceNotAllowedException()
 
@@ -316,7 +343,7 @@ async def get_zones(
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#get--servers-server_id-zones>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/zones", dict(request.query_params)
     )
@@ -343,7 +370,7 @@ async def create_zone(request: Request, server_id: str, X_API_Key: str = Header(
     """
     payload = await request.json()
     logger.info(f'Zone creation request data: "{payload}"')
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_zone_allowed(environment, payload["name"]):
         raise ZoneNotAllowedException()
     if not check_pdns_zone_admin(environment, payload["name"]):
@@ -370,7 +397,7 @@ async def get_zone_metadata(
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#get--servers-server_id-zones-zone_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -395,7 +422,7 @@ async def update_zone_metadata(
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
         raise ZoneNotAllowedException()
     if not check_pdns_zone_admin(environment, zone_id):
@@ -426,7 +453,7 @@ async def update_zone_rrset(
     <https://doc.powerdns.com/authoritative/http-api/zone.html#patch--servers-server_id-zones-zone_id>
     """
     logger.debug(f"Update RRSet request for {zone_id}")
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -452,7 +479,7 @@ async def delete_zone(server_id: str, zone_id: str, X_API_Key: str = Header()):
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#delete--servers-server_id-zones-zone_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_zone_admin(environment, zone_id):
         raise ZoneNotAllowedException()
     resp = await pdns.delete(f"/api/v1/servers/{server_id}/zones/{zone_id}")
@@ -473,7 +500,7 @@ async def zone_notification(server_id: str, zone_id: str, X_API_Key: str = Heade
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id-notify>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -500,7 +527,7 @@ async def zone_rectification(
 
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id-rectify>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -538,7 +565,7 @@ async def search_data(
 
     <https://doc.powerdns.com/authoritative/http-api/search.html>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_search_allowed(environment, q, object_type):
         logger.info(
             f'Search "{q}" with object_type "{object_type}" is not allowed '
@@ -564,7 +591,7 @@ async def list_cryptokeys(server_id: str, zone_id: str, X_API_Key: str = Header(
 
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#get--servers-server_id-zones-zone_id-cryptokeys>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -585,7 +612,7 @@ async def create_cryptokey(
 
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#post--servers-server_id-zones-zone_id-cryptokeys>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -607,7 +634,7 @@ async def fetch_cryptokey(
 
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#get--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -632,7 +659,7 @@ async def update_cryptokey(
 
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#put--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -654,7 +681,7 @@ async def delete_cryptokey(
 
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#delete--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -673,7 +700,7 @@ async def list_tsigkeys(server_id: str, X_API_Key: str = Header()):
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#get--servers-server_id-tsigkeys>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -690,7 +717,7 @@ async def fetch_tsigkey(server_id: str, tsigkey_id: str, X_API_Key: str = Header
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#get--servers-server_id-tsigkeys-tsigkey_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -710,7 +737,7 @@ async def create_tsigkey(request: Request, server_id: str, X_API_Key: str = Head
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#post--servers-server_id-tsigkeys>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -740,7 +767,7 @@ async def update_tsigkey(
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#put--servers-server_id-tsigkeys-tsigkey_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
@@ -760,7 +787,7 @@ async def delete_tsigkey(server_id: str, tsigkey_id: str, X_API_Key: str = Heade
 
     <https://doc.powerdns.com/authoritative/http-api/tsigkey.html#delete--servers-server_id-tsigkeys-tsigkey_id>
     """
-    environment = get_environment_for_token(config, X_API_Key)
+    environment = get_environment_for_token(config_holder.get(), X_API_Key)
     if not check_pdns_tsigkeys_allowed(environment):
         logger.info(f"TSIGKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()

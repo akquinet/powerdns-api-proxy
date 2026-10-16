@@ -1,6 +1,5 @@
 import hashlib
 import os
-from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
@@ -28,7 +27,6 @@ from powerdns_api_proxy.utils import (
 )
 
 
-@lru_cache(maxsize=1)
 def load_config(path: Path | None = None) -> ProxyConfig:
     logger.info("Loading config")
     if not path:
@@ -42,6 +40,43 @@ def load_config(path: Path | None = None) -> ProxyConfig:
     config = ProxyConfig(**data)
 
     return config
+
+
+class ConfigHolder:
+    """Holds the currently active config. Consumers read it per request."""
+
+    def __init__(self) -> None:
+        self._config: ProxyConfig | None = None
+
+    def get(self) -> ProxyConfig:
+        if self._config is None:
+            self._config = load_config()
+        return self._config
+
+    def reload(self) -> bool:
+        """
+        Parse and validate the config file and swap it in.
+
+        On failure the previous config is kept and an error is logged, so a
+        broken config edit never takes a running proxy down.
+        """
+        try:
+            new_config = load_config()
+        except Exception:
+            logger.exception(
+                "Failed to reload config, keeping the previous configuration"
+            )
+            return False
+
+        self._config = new_config
+        logger.info(
+            "Reloaded config with environments: %s",
+            ", ".join(environment.name for environment in new_config.environments),
+        )
+        return True
+
+
+config_holder = ConfigHolder()
 
 
 def token_defined(config: ProxyConfig, token: str) -> bool:
@@ -65,7 +100,7 @@ def check_token_defined(config: ProxyConfig, token: str):
 def dependency_check_token_defined(
     X_API_Key: str = Header(description="API Key for the proxy."),
 ):
-    check_token_defined(load_config(), X_API_Key)
+    check_token_defined(config_holder.get(), X_API_Key)
 
 
 security = HTTPBasic()
@@ -80,7 +115,7 @@ def dependency_metrics_proxy_enabled(
     password = credentials.password
 
     try:
-        environment = get_environment_for_token(load_config(), password)
+        environment = get_environment_for_token(config_holder.get(), password)
         if not environment.name == username:
             raise NotAuthorizedException()
         if not environment.metrics_proxy:

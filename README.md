@@ -15,6 +15,7 @@ example, can get write access to nothing but `_acme-challenge` records.
 - Optional access to subzones and regex-matched zones
 - Server-wide permissions for search, config, statistics, TSIG keys and DNSSEC keys
 - Prometheus metrics, audit logging and optional Sentry integration
+- Config reload via SIGHUP without restarting the proxy
 - Compatible with the PowerDNS API v1 (`X-API-Key` header, `{"error": ...}` responses)
 
 ## Quick start
@@ -236,9 +237,9 @@ forwarded; values PowerDNS would not understand as-is are rejected with `400`.
 
 ## Configuration
 
-The configuration is YAML and is read once at startup, so restart the proxy to
-apply changes. The path is passed via the `PROXY_CONFIG_PATH` environment
-variable.
+The configuration is YAML; the path is passed via the `PROXY_CONFIG_PATH`
+environment variable. Changes can be applied without a restart, see
+[Reloading the configuration](#reloading-the-configuration).
 
 ### Top-level options
 
@@ -296,6 +297,33 @@ environments:
 
 `all_records` is not configured directly: it is enabled automatically when a
 zone lists neither `records` nor `regex_records`.
+
+### Reloading the configuration
+
+Send `SIGHUP` to the proxy process to re-read the config file without a
+restart:
+
+```bash
+docker kill -s HUP powerdns-api-proxy   # container
+kill -HUP <pid>                         # local process
+```
+
+The proxy parses and validates the new file and swaps it in atomically for
+subsequent requests. This applies to the environments (tokens, zones,
+permissions), the index page settings and the upstream connection settings
+(`pdns_api_url`, `pdns_api_token`, `pdns_api_verify_ssl`). The reload is logged
+with the new environment names only, never tokens or hashes.
+
+If the new file is invalid (broken YAML or schema errors), the proxy keeps
+serving the previous configuration and logs an error — a broken config edit
+never takes a running proxy down.
+
+`metrics_enabled`, `metrics_require_auth` and `api_docs_enabled` are wired
+into the app at startup and still require a restart, as do the `LOG_*` and
+`AUDIT_*` environment variables. Reload does not work with `uvicorn --reload`
+(`make run`), because the signal reaches the reloader supervisor instead of
+the serving worker; production processes (Docker, service units) are not
+affected.
 
 ## Environment variables
 

@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from powerdns_api_proxy.config import config_holder
+from powerdns_api_proxy import proxy as proxy_module
 from powerdns_api_proxy.models import (
     ProxyConfig,
     ProxyConfigEnvironment,
@@ -45,8 +47,7 @@ os.environ["PROXY_CONFIG_PATH"] = "./config-example.yml"
 
 @pytest.fixture()
 def fixture_patch_dummy_config() -> Generator[None, None, None]:
-    with patch("powerdns_api_proxy.config.load_config") as load_config_patch:
-        load_config_patch.return_value = dummy_proxy_config
+    with patch.object(config_holder, "_config", dummy_proxy_config):
         yield
 
 
@@ -73,7 +74,7 @@ def test_index_custom_html():
         index_html=custom_html,
     )
 
-    with patch("powerdns_api_proxy.proxy.config", custom_config):
+    with patch.object(config_holder, "_config", custom_config):
         response = client.get("/")
         assert response.status_code == 200
         assert response.text == custom_html
@@ -88,7 +89,7 @@ def test_index_disabled():
         index_enabled=False,
     )
 
-    with patch("powerdns_api_proxy.proxy.config", custom_config):
+    with patch.object(config_holder, "_config", custom_config):
         response = client.get("/")
         assert response.status_code == 404
 
@@ -212,10 +213,7 @@ def _global_read_only_config() -> ProxyConfig:
 )
 def test_notify_rectify_rejected_for_read_only_zone(path, fixture_patch_pdns):
     config = _read_only_config()
-    with (
-        patch("powerdns_api_proxy.proxy.config", config),
-        patch("powerdns_api_proxy.config.load_config", return_value=config),
-    ):
+    with patch.object(config_holder, "_config", config):
         answer = client.put(path, headers={"X-API-Key": dummy_proxy_environment_token})
     assert answer.status_code == 403
     assert answer.json()["error"] == ZoneReadOnlyException().detail
@@ -233,8 +231,7 @@ def test_notify_rectify_allowed_for_listed_zone_in_global_read_only(path):
     pdns_response.raise_for_error.return_value = 204
     config = _global_read_only_config()
     with (
-        patch("powerdns_api_proxy.proxy.config", config),
-        patch("powerdns_api_proxy.config.load_config", return_value=config),
+        patch.object(config_holder, "_config", config),
         patch("powerdns_api_proxy.proxy.pdns.put", new_callable=AsyncMock) as put,
         patch(
             "powerdns_api_proxy.proxy.handle_pdns_response",
@@ -264,8 +261,7 @@ def test_patch_allowed_for_listed_zone_in_global_read_only():
     }
     config = _global_read_only_config()
     with (
-        patch("powerdns_api_proxy.proxy.config", config),
-        patch("powerdns_api_proxy.config.load_config", return_value=config),
+        patch.object(config_holder, "_config", config),
         patch(
             "powerdns_api_proxy.proxy.pdns.patch", new_callable=AsyncMock
         ) as patch_call,
@@ -311,3 +307,39 @@ def test_api_delete_wrong_token(path, fixture_patch_dummy_config, fixture_patch_
 @pytest.mark.parametrize("path", delete_routes)
 def test_api_delete_missing_token(path, fixture_patch_dummy_config, fixture_patch_pdns):
     _token_missing_request(client, "DELETE", path)
+
+
+def test_reload_config_rebuilds_pdns():
+    original_pdns = proxy_module.pdns
+    new_config = ProxyConfig(
+        pdns_api_token="new-token",
+        pdns_api_url="https://new-upstream.example.com",
+        environments=[dummy_proxy_environment],
+    )
+
+    try:
+        with (
+            patch.object(config_holder, "reload", return_value=True),
+            patch.object(config_holder, "_config", new_config),
+            patch("powerdns_api_proxy.proxy.PDNSConnector") as connector,
+        ):
+            proxy_module._reload_config()
+    finally:
+        proxy_module.pdns = original_pdns
+
+    connector.assert_called_once_with(
+        "https://new-upstream.example.com", "new-token", True
+    )
+
+
+def test_reload_config_keeps_pdns_when_reload_fails():
+    original_pdns = proxy_module.pdns
+
+    with (
+        patch.object(config_holder, "reload", return_value=False),
+        patch("powerdns_api_proxy.proxy.PDNSConnector") as connector,
+    ):
+        proxy_module._reload_config()
+
+    connector.assert_not_called()
+    assert proxy_module.pdns is original_pdns
