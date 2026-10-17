@@ -23,6 +23,7 @@ from powerdns_api_proxy.config import (
     check_pdns_statistics_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
+    check_pdns_zone_attrs_allowed,
     check_pdns_zone_writable,
     dependency_check_token_defined,
     dependency_metrics_proxy_enabled,
@@ -45,6 +46,7 @@ from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.middleware import AuditMiddleware
 from powerdns_api_proxy.metrics import http_requests_total_environment
 from powerdns_api_proxy.models import (
+    ProxyConfigEnvironment,
     ResponseAllowed,
     ResponseZoneAllowed,
 )
@@ -151,6 +153,37 @@ router_pdns = APIRouter(
         Depends(dependency_path_params_safe),
     ],
 )
+
+
+async def enforce_zone_attr_filters(
+    environment: ProxyConfigEnvironment, server_id: str, zone_id: str
+) -> None:
+    """Enforce configured kind/account/catalog filters for a single zone.
+
+    The attributes are only known after fetching the zone from PowerDNS, so the
+    zone is fetched first and the request is rejected if it does not match. No
+    upstream request is made when the matched zone entry configures no filter.
+    """
+    try:
+        env_zone = environment.get_zone_if_allowed(zone_id)
+    except ZoneNotAllowedException:
+        if environment.global_read_only:
+            # global_read_only exposes all zones, which have no zone config
+            return
+        raise
+    if not (env_zone.kind or env_zone.account or env_zone.catalog):
+        return
+    resp = await pdns.get(f"/api/v1/servers/{server_id}/zones/{zone_id}")
+    pdns_response = await handle_pdns_response(resp)
+    pdns_response.raise_for_error()
+    if not isinstance(pdns_response.data, dict):
+        logger.error(f"We expected powerdns to return json: {pdns_response.data}")
+        raise UpstreamException()
+    if not check_pdns_zone_attrs_allowed(env_zone, pdns_response.data):
+        logger.info(
+            f"Zone {zone_id} attributes not allowed for environment {environment.name}"
+        )
+        raise ZoneNotAllowedException()
 
 
 @app.head("/", include_in_schema=False)
@@ -384,6 +417,7 @@ async def get_zone_metadata(
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         params=dict(request.query_params),
@@ -410,6 +444,7 @@ async def update_zone_metadata(
         raise ZoneNotAllowedException()
     if not check_pdns_zone_admin(environment, zone_id):
         raise ZoneAdminNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.put(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         payload=await request.json(),
@@ -440,6 +475,7 @@ async def update_zone_rrset(
     if not check_pdns_zone_allowed(environment, zone_id):
         logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     zone = environment.get_zone_if_allowed(zone_id)
     ensure_rrsets_request_allowed(zone, await request.json())
     resp = await pdns.patch(
@@ -465,6 +501,7 @@ async def delete_zone(server_id: str, zone_id: str, X_API_Key: str = Header()):
     environment = get_environment_for_token(config, X_API_Key)
     if not check_pdns_zone_admin(environment, zone_id):
         raise ZoneNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.delete(f"/api/v1/servers/{server_id}/zones/{zone_id}")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
@@ -490,6 +527,7 @@ async def zone_notification(server_id: str, zone_id: str, X_API_Key: str = Heade
     if not check_pdns_zone_writable(environment, zone_id):
         logger.info(f"Zone {zone_id} is read only for environment {environment.name}")
         raise ZoneReadOnlyException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/notify")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
@@ -517,6 +555,7 @@ async def zone_rectification(
     if not check_pdns_zone_writable(environment, zone_id):
         logger.info(f"Zone {zone_id} is read only for environment {environment.name}")
         raise ZoneReadOnlyException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/rectify")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
@@ -578,6 +617,7 @@ async def list_cryptokeys(server_id: str, zone_id: str, X_API_Key: str = Header(
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.get(f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
@@ -599,6 +639,7 @@ async def create_cryptokey(
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.post(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys",
         payload=await request.json(),
@@ -621,6 +662,7 @@ async def fetch_cryptokey(
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}"
     )
@@ -646,6 +688,7 @@ async def update_cryptokey(
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.put(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}",
         payload=await request.json(),
@@ -668,6 +711,7 @@ async def delete_cryptokey(
     if not check_pdns_cryptokeys_allowed(environment, zone_id):
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
+    await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.delete(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}"
     )

@@ -3,6 +3,7 @@ from copy import deepcopy
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from powerdns_api_proxy.config import (
     check_acme_record_allowed,
@@ -13,6 +14,7 @@ from powerdns_api_proxy.config import (
     check_pdns_statistics_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
+    check_pdns_zone_attrs_allowed,
     check_pdns_zone_writable,
     check_rrset_allowed,
     check_token_defined,
@@ -94,6 +96,128 @@ def test_get_only_pdns_zones_allowed():
     assert len(allowed) == len(env.zones)
     assert "test1.example.com." in [z.name for z in env.zones]
     assert "test3.example.com." in [z.name for z in env.zones]
+
+
+def test_get_only_pdns_zones_allowed_by_kind():
+    pdns_zones = [
+        {"name": "master.example.com.", "kind": "Master"},
+        {"name": "slave.example.com.", "kind": "Slave"},
+    ]
+    env = ProxyConfigEnvironment(
+        name="Test Environment1",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[
+            ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Master"),
+        ],
+    )
+    allowed = get_only_pdns_zones_allowed(env, pdns_zones)
+    assert [z["name"] for z in allowed] == ["master.example.com."]
+
+
+def test_get_only_pdns_zones_allowed_by_account_and_catalog():
+    pdns_zones = [
+        {
+            "name": "public.example.com.",
+            "kind": "Slave",
+            "account": "public",
+            "catalog": "default-catalog.invalid",
+        },
+        {
+            "name": "other.example.com.",
+            "kind": "Slave",
+            "account": "other",
+            "catalog": "default-catalog.invalid",
+        },
+    ]
+    env = ProxyConfigEnvironment(
+        name="Test Environment1",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[
+            ProxyConfigZone(
+                name=".*\\.example.com",
+                regex=True,
+                account="public",
+                catalog="default-catalog.invalid",
+            ),
+        ],
+    )
+    allowed = get_only_pdns_zones_allowed(env, pdns_zones)
+    assert [z["name"] for z in allowed] == ["public.example.com."]
+
+
+def test_check_pdns_zone_attrs_allowed_kind_is_case_insensitive():
+    zone = ProxyConfigZone(name="example.com.", kind="master")
+    assert check_pdns_zone_attrs_allowed(zone, {"kind": "Master"})
+
+
+def test_check_pdns_zone_attrs_allowed_no_filter():
+    zone = ProxyConfigZone(name="example.com.")
+    assert check_pdns_zone_attrs_allowed(zone, {})
+
+
+def test_check_pdns_zone_attrs_allowed_kind_mismatch():
+    zone = ProxyConfigZone(name="example.com.", kind="Master")
+    assert not check_pdns_zone_attrs_allowed(zone, {"kind": "Slave"})
+
+
+def test_check_pdns_zone_attrs_allowed_account_mismatch():
+    zone = ProxyConfigZone(name="example.com.", account="public")
+    assert not check_pdns_zone_attrs_allowed(
+        zone, {"account": "other", "kind": "Slave"}
+    )
+
+
+def test_check_pdns_zone_attrs_allowed_catalog_missing_upstream():
+    zone = ProxyConfigZone(name="example.com.", catalog="default-catalog.invalid")
+    assert not check_pdns_zone_attrs_allowed(zone, {"kind": "Master"})
+
+
+def test_attribute_only_zone_matches_any_name():
+    env = ProxyConfigEnvironment(
+        name="Test Attribute Only",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[ProxyConfigZone(kind="Master")],
+    )
+    assert check_pdns_zone_allowed(env, "anything.example.com.")
+    assert env.get_zone_if_allowed("anything.example.com.").kind == "Master"
+
+
+def test_attribute_only_zone_admin_applies():
+    env = ProxyConfigEnvironment(
+        name="Test Attribute Only Admin",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[ProxyConfigZone(kind="Master", admin=True)],
+    )
+    assert check_pdns_zone_admin(env, "anything.example.com.")
+
+
+def test_get_only_pdns_zones_allowed_attribute_only():
+    pdns_zones = [
+        {"name": "master.example.com.", "kind": "Master"},
+        {"name": "slave.example.com.", "kind": "Slave"},
+    ]
+    env = ProxyConfigEnvironment(
+        name="Test Attribute Only",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[ProxyConfigZone(kind="Master")],
+    )
+    allowed = get_only_pdns_zones_allowed(env, pdns_zones)
+    assert [z["name"] for z in allowed] == ["master.example.com."]
+
+
+def test_zone_without_name_and_without_filter_raises():
+    with pytest.raises(ValidationError):
+        ProxyConfigZone()
+
+
+def test_attr_only_zone_with_records_raises():
+    with pytest.raises(ValidationError):
+        ProxyConfigZone(kind="Master", records=["a.example.com."])
+
+
+def test_attr_only_zone_with_subzones_raises():
+    with pytest.raises(ValidationError):
+        ProxyConfigZone(kind="Master", subzones=True)
 
 
 def test_get_only_pdns_zones_allowed_glboal_read_only():

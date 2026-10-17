@@ -2,6 +2,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from powerdns_api_proxy.config import load_config
 
@@ -134,3 +135,72 @@ environments:
         config = load_config(Path(f.name))
         assert config.environments[0].global_read_only is True
         assert config.environments[0].zones[0].admin is True
+
+
+def test_zone_attributes_from_yaml():
+    config_content = """
+pdns_api_url: "https://test.example.com"
+pdns_api_token: "testtoken123"
+environments:
+  - name: "Test"
+    token_sha512: "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"
+    zones:
+      - name: "example.com"
+        kind: "Master"
+        account: "public"
+        catalog: "default-catalog.invalid"
+      - name: "other.example.com"
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as f:
+        f.write(config_content)
+        f.flush()
+
+        config_path = Path(f.name)
+        config = load_config(config_path)
+        zones = config.environments[0].zones
+        assert zones[0].kind == "Master"
+        assert zones[0].account == "public"
+        assert zones[0].catalog == "default-catalog.invalid"
+        assert zones[1].kind == ""
+        assert zones[1].account == ""
+        assert zones[1].catalog == ""
+
+
+def test_attribute_only_zone_from_yaml():
+    config_content = """
+pdns_api_url: "https://test.example.com"
+pdns_api_token: "testtoken123"
+environments:
+  - name: "Test"
+    token_sha512: "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"
+    zones:
+      - kind: "Master"
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as f:
+        f.write(config_content)
+        f.flush()
+
+        config_path = Path(f.name)
+        config = load_config(config_path)
+        zone = config.environments[0].zones[0]
+        assert zone.name == ""
+        assert zone.kind == "Master"
+
+
+def test_zone_without_name_or_filter_from_yaml_raises():
+    config_content = """
+pdns_api_url: "https://test.example.com"
+pdns_api_token: "testtoken123"
+environments:
+  - name: "Test"
+    token_sha512: "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"
+    zones:
+      - description: "no name and no attribute filter"
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as f:
+        f.write(config_content)
+        f.flush()
+
+        config_path = Path(f.name)
+        with pytest.raises(ValidationError):
+            load_config(config_path)

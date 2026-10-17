@@ -18,7 +18,8 @@ class ProxyConfigServices(BaseModel):
 
 class ProxyConfigZone(BaseModel):
     """
-    `name` is the zone name.
+    `name` is the zone name. It may be omitted when a `kind`, `account` or
+    `catalog` filter is set, in which case the zone matches by attribute only.
     `description` is a description of the zone.
     `regex` should be set to `True` if `name` is a regex.
     `records` is a list of record names that are allowed.
@@ -28,9 +29,10 @@ class ProxyConfigZone(BaseModel):
     `all_records` will be set to `True` if no `records` are defined.
     `cryptokeys` enables management of DNSSEC.
     `read_only` controls write permissions for this specific zone.
+    `kind`, `account` and `catalog` filter zones by their PowerDNS attributes.
     """
 
-    name: str
+    name: str = ""
     regex: bool = False
     description: str = ""
     records: list[str] = []
@@ -41,6 +43,22 @@ class ProxyConfigZone(BaseModel):
     all_records: bool = False
     read_only: bool = False
     cryptokeys: bool = False
+    kind: str = ""
+    account: str = ""
+    catalog: str = ""
+
+    @model_validator(mode="after")
+    def name_or_attr_filter_defined(self):
+        if not self.name:
+            if not (self.kind or self.account or self.catalog):
+                raise ValueError(
+                    "a zone requires a name or a kind/account/catalog filter"
+                )
+            if self.regex or self.records or self.regex_records or self.subzones:
+                raise ValueError(
+                    "regex, records, regex_records and subzones require a zone name"
+                )
+        return self
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -103,7 +121,8 @@ class ProxyConfigEnvironment(BaseModel):
 
         # populate zones lookup
         for zone in self.zones:
-            self._zones_lookup[zone.name] = zone
+            if zone.name:
+                self._zones_lookup[zone.name] = zone
 
     def __hash__(self):
         return hash(
@@ -125,6 +144,10 @@ class ProxyConfigEnvironment(BaseModel):
             return self._zones_lookup[zone]
 
         for z in self.zones:
+            if not z.name and (z.kind or z.account or z.catalog):
+                logger.debug(f'"{zone}" matches an attribute-only zone entry')
+                return z
+
             if check_zones_equal(zone, z.name):
                 return z
 

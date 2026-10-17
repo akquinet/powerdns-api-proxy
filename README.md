@@ -152,6 +152,58 @@ Additional zone options:
 - `admin: true` allows creating and deleting the zone.
 - `cryptokeys: true` allows managing the DNSSEC keys of the zone.
 
+#### Zone attributes (kind, account, catalog)
+
+A zone can additionally be selected by the upstream zone attributes `kind`
+(`Master`, `Slave`, `Native`, `Producer`, `Consumer`), `account` and `catalog`.
+`kind` is compared case-insensitively, `account` and `catalog` must match
+exactly.
+
+```yaml
+environments:
+  - name: "Test1"
+    zones:
+      - name: ".*\\.example.com"
+        regex: true
+        kind: "Master"
+      - name: "public.example.com."
+        account: "public"
+      - name: "example.com."
+        catalog: "default-catalog.invalid"
+```
+
+The attributes are matched in addition to the name: a zone is allowed when its
+name (or `regex`) matches and every configured attribute matches. Attributes are
+empty by default, which disables the filter.
+
+A zone entry without a `name` matches by attribute only, so all zones with that
+`kind`, `account` or `catalog` are allowed without listing their names:
+
+```yaml
+...
+environments:
+    - name: "Test1"
+      ...
+      zones:
+        - kind: "Master"
+        - account: "public"
+```
+
+A zone entry needs either a `name` or one of the attribute filters. An entry
+without a `name` cannot set `regex`, `records`, `regex_records` or `subzones`,
+because those compare against the zone name. Permissions like `admin` or
+`read_only` on an attribute-only entry apply to every zone it matches, so treat
+such an entry as a wildcard and put it after the more specific entries.
+
+The filter applies to the zone listing, to requests for a single zone and to a
+zone's `cryptokeys` endpoints. It cannot be applied when creating a zone, because
+the zone does not exist in PowerDNS yet. When several zone entries match, the
+first one in the list wins.
+
+In a `global_read_only` environment all zones stay readable. Attribute filters on
+the listed entries still narrow the zone listing, but zones that are not listed
+remain readable without an attribute check.
+
 ### ACME challenges
 
 For a zone that lists individual `records`, ACME challenge writes must be

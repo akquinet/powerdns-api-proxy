@@ -1,3 +1,4 @@
+import json
 import os
 from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -340,3 +341,180 @@ def test_api_delete_wrong_token(path, fixture_patch_dummy_config, fixture_patch_
 @pytest.mark.parametrize("path", delete_routes)
 def test_api_delete_missing_token(path, fixture_patch_dummy_config, fixture_patch_pdns):
     _token_missing_request(client, "DELETE", path)
+
+
+class _FakeUpstreamResponse:
+    def __init__(self, data, status: int = 200):
+        self._data = data
+        self.status = status
+        self.url = "https://pdns.example.com/"
+
+    async def text(self) -> str:
+        return json.dumps(self._data)
+
+
+def _attr_filter_config(**zone_kwargs) -> ProxyConfig:
+    zone = ProxyConfigZone(name=".*\\.example.com", regex=True, **zone_kwargs)
+    environment = ProxyConfigEnvironment(
+        name="Attributes",
+        zones=[zone],
+        token_sha512=dummy_proxy_environment_token_sha512,
+    )
+    return ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+
+
+def _get_zone(zone: str, upstream: AsyncMock):
+    with patch("powerdns_api_proxy.proxy.pdns", upstream):
+        return client.get(
+            f"/api/v1/servers/localhost/zones/{zone}",
+            headers={"X-API-Key": dummy_proxy_environment_token},
+        )
+
+
+def test_zone_attr_filter_rejects_mismatching_zone():
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse({"kind": "Slave"}))
+    with patch("powerdns_api_proxy.proxy.config", _attr_filter_config(kind="Master")):
+        answer = _get_zone("slave.example.com.", upstream)
+    assert answer.status_code == 403
+    assert upstream.get.call_count == 1
+
+
+def test_zone_attr_filter_allows_matching_zone():
+    zone_data = {"name": "master.example.com.", "kind": "Master"}
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(
+        side_effect=[
+            _FakeUpstreamResponse(zone_data),
+            _FakeUpstreamResponse(zone_data),
+        ]
+    )
+    with patch("powerdns_api_proxy.proxy.config", _attr_filter_config(kind="Master")):
+        answer = _get_zone("master.example.com.", upstream)
+    assert answer.status_code == 200
+    assert upstream.get.call_count == 2
+
+
+def test_zone_attr_filter_skipped_without_filters():
+    zone_data = {"name": "slave.example.com.", "kind": "Slave"}
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse(zone_data))
+    with patch("powerdns_api_proxy.proxy.config", _attr_filter_config()):
+        answer = _get_zone("slave.example.com.", upstream)
+    assert answer.status_code == 200
+    assert upstream.get.call_count == 1
+
+
+def test_zone_attr_filter_rejects_mismatching_delete():
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse({"kind": "Slave"}))
+    with patch(
+        "powerdns_api_proxy.proxy.config",
+        _attr_filter_config(kind="Master", admin=True),
+    ):
+        with patch("powerdns_api_proxy.proxy.pdns", upstream):
+            answer = client.delete(
+                "/api/v1/servers/localhost/zones/slave.example.com.",
+                headers={"X-API-Key": dummy_proxy_environment_token},
+            )
+    assert answer.status_code == 403
+    assert upstream.delete.call_count == 0
+
+
+def _attr_only_config(**zone_kwargs) -> ProxyConfig:
+    environment = ProxyConfigEnvironment(
+        name="Attribute Only",
+        zones=[ProxyConfigZone(**zone_kwargs)],
+        token_sha512=dummy_proxy_environment_token_sha512,
+    )
+    return ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+
+
+def test_attribute_only_filter_rejects_mismatching_zone():
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse({"kind": "Slave"}))
+    with patch("powerdns_api_proxy.proxy.config", _attr_only_config(kind="Master")):
+        answer = _get_zone("slave.example.com.", upstream)
+    assert answer.status_code == 403
+
+
+def test_attribute_only_filter_allows_matching_zone():
+    zone_data = {"name": "master.example.com.", "kind": "Master"}
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(
+        side_effect=[
+            _FakeUpstreamResponse(zone_data),
+            _FakeUpstreamResponse(zone_data),
+        ]
+    )
+    with patch("powerdns_api_proxy.proxy.config", _attr_only_config(kind="Master")):
+        answer = _get_zone("master.example.com.", upstream)
+    assert answer.status_code == 200
+
+
+def _get_cryptokeys(zone: str, token: str, upstream: AsyncMock):
+    with patch("powerdns_api_proxy.proxy.pdns", upstream):
+        return client.get(
+            f"/api/v1/servers/localhost/zones/{zone}/cryptokeys",
+            headers={"X-API-Key": token},
+        )
+
+
+def test_cryptokeys_attr_filter_rejects_mismatching_zone():
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse({"kind": "Slave"}))
+    config_obj = _attr_filter_config(kind="Master", cryptokeys=True)
+    with patch("powerdns_api_proxy.proxy.config", config_obj):
+        answer = _get_cryptokeys(
+            "slave.example.com.", dummy_proxy_environment_token, upstream
+        )
+    assert answer.status_code == 403
+    assert upstream.get.call_count == 1
+
+
+def test_cryptokeys_attr_filter_allows_matching_zone():
+    zone_data = {"name": "master.example.com.", "kind": "Master"}
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(
+        side_effect=[
+            _FakeUpstreamResponse(zone_data),
+            _FakeUpstreamResponse([{"id": 1}]),
+        ]
+    )
+    config_obj = _attr_filter_config(kind="Master", cryptokeys=True)
+    with patch("powerdns_api_proxy.proxy.config", config_obj):
+        answer = _get_cryptokeys(
+            "master.example.com.", dummy_proxy_environment_token, upstream
+        )
+    assert answer.status_code == 200
+    assert upstream.get.call_count == 2
+
+
+def test_attr_entry_does_not_fetch_for_plain_name_zone():
+    plain_zone = ProxyConfigZone(name="plain.example.com.")
+    attr_zone = ProxyConfigZone(kind="Master")
+    environment = ProxyConfigEnvironment(
+        name="Mixed",
+        zones=[plain_zone, attr_zone],
+        token_sha512=dummy_proxy_environment_token_sha512,
+    )
+    config_obj = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+    zone_data = {"name": "plain.example.com.", "kind": "Slave"}
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse(zone_data))
+    with patch("powerdns_api_proxy.proxy.config", config_obj):
+        answer = _get_zone("plain.example.com.", upstream)
+    assert answer.status_code == 200
+    assert upstream.get.call_count == 1

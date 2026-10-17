@@ -116,9 +116,35 @@ def get_only_pdns_zones_allowed(
         return pdns_zones
 
     for zone in pdns_zones:
-        if check_pdns_zone_allowed(environment, zone["name"]):
+        if not check_pdns_zone_allowed(environment, zone["name"]):
+            continue
+        try:
+            env_zone = environment.get_zone_if_allowed(zone["name"])
+        except ZoneNotAllowedException:
+            continue
+        if check_pdns_zone_attrs_allowed(env_zone, zone):
             filtered.append(zone)
     return filtered
+
+
+def check_pdns_zone_attrs_allowed(zone: ProxyConfigZone, pdns_zone: dict) -> bool:
+    """Returns True if the upstream zone matches the configured kind/account/catalog"""
+    if zone.kind and pdns_zone.get("kind", "").lower() != zone.kind.lower():
+        logger.debug(
+            f'Zone kind "{pdns_zone.get("kind", "")}" does not match "{zone.kind}"'
+        )
+        return False
+    if zone.account and pdns_zone.get("account", "") != zone.account:
+        logger.debug(
+            f'Zone account "{pdns_zone.get("account", "")}" does not match "{zone.account}"'
+        )
+        return False
+    if zone.catalog and pdns_zone.get("catalog", "") != zone.catalog:
+        logger.debug(
+            f'Zone catalog "{pdns_zone.get("catalog", "")}" does not match "{zone.catalog}"'
+        )
+        return False
+    return True
 
 
 def check_pdns_zone_allowed(environment: ProxyConfigEnvironment, zone: str) -> bool:
