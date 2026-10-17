@@ -8,6 +8,7 @@ from fastapi import (
     Depends,
     FastAPI,
     Header,
+    HTTPException,
     Request,
     Response,
 )
@@ -16,14 +17,12 @@ from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from powerdns_api_proxy.config import (
-    check_pdns_search_allowed,
-    check_pdns_cryptokeys_allowed,
-    check_pdns_tsigkeys_allowed,
     check_pdns_config_allowed,
+    check_pdns_search_allowed,
     check_pdns_statistics_allowed,
+    check_pdns_tsigkeys_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
-    check_pdns_zone_writable,
     dependency_check_token_defined,
     dependency_metrics_proxy_enabled,
     ensure_rrsets_request_allowed,
@@ -36,15 +35,17 @@ from powerdns_api_proxy.exceptions import (
     RessourceNotAllowedException,
     SearchNotAllowedException,
     ServerNotFoundException,
+    UpstreamException,
     ZoneAdminNotAllowedException,
     ZoneNotAllowedException,
     ZoneReadOnlyException,
-    UpstreamException,
 )
 from powerdns_api_proxy.logging import logger
-from powerdns_api_proxy.middleware import AuditMiddleware
 from powerdns_api_proxy.metrics import http_requests_total_environment
+from powerdns_api_proxy.middleware import AuditMiddleware
 from powerdns_api_proxy.models import (
+    ProxyConfigEnvironment,
+    ProxyConfigZone,
     ResponseAllowed,
     ResponseZoneAllowed,
 )
@@ -153,6 +154,69 @@ router_pdns = APIRouter(
 )
 
 
+async def resolve_zone_entry(
+    environment: ProxyConfigEnvironment, server_id: str, zone_id: str
+) -> ProxyConfigZone | None:
+    """Resolve the zone entry that governs a single zone, or None.
+
+    Returns None when no entry matches the name or the upstream attributes, so
+    callers decide how to treat an unmatched zone. Errors from the upstream
+    lookup (for example a 404 for an unknown zone) are propagated.
+
+    The zone id is validated before it is interpolated into the upstream URL,
+    so a caller cannot make the proxy request a different PowerDNS resource.
+    """
+    if not check_path_param_safe(zone_id):
+        raise InvalidPathParameterException("zone_id")
+    named, attr_only = environment.get_zone_candidates(zone_id)
+    if not named and not attr_only:
+        return None
+    if named and not named[0].has_attribute_filter:
+        return named[0]
+    resp = await pdns.get(
+        f"/api/v1/servers/{server_id}/zones/{zone_id}",
+        params={"rrsets": "false"},
+    )
+    pdns_response = await handle_pdns_response(resp)
+    pdns_response.raise_for_error()
+    if not isinstance(pdns_response.data, dict):
+        logger.error(f"We expected powerdns to return json: {pdns_response.data}")
+        raise UpstreamException()
+    return environment.get_zone_entry(zone_id, pdns_response.data)
+
+
+async def enforce_zone_attr_filters(
+    environment: ProxyConfigEnvironment, server_id: str, zone_id: str
+) -> ProxyConfigZone:
+    """Resolve and enforce the zone entry for a single zone.
+
+    Returns the selected zone entry. Entries that match by name are preferred.
+    Attribute filters require the upstream zone, so it is fetched once when the
+    first matching entry carries a filter or when no named entry matches.
+    Raises ZoneNotAllowedException when no entry matches.
+
+    Callers skip this check for reads in global_read_only environments
+    (see get_zone_metadata).
+    """
+    env_zone = await resolve_zone_entry(environment, server_id, zone_id)
+    if env_zone is None:
+        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
+        raise ZoneNotAllowedException()
+    return env_zone
+
+
+async def enforce_cryptokeys_access(
+    environment: ProxyConfigEnvironment, server_id: str, zone_id: str
+) -> None:
+    """Enforce attribute filters and the cryptokeys permission for a zone."""
+    if environment.global_cryptokeys:
+        return
+    zone = await enforce_zone_attr_filters(environment, server_id, zone_id)
+    if not zone.cryptokeys:
+        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
+        raise ZoneNotAllowedException()
+
+
 @app.head("/", include_in_schema=False)
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def hello():
@@ -204,14 +268,31 @@ async def get_zone_allowed(zone: str, X_API_Key: str = Header()):
     """
     Check if the given zone is allowed for the given token.
     Also returns the zone config that allows the zone.
+
+    In global_read_only environments every zone is readable, so the answer is
+    based on configuration only. Otherwise, when the matching entry filters by
+    `kind`, `account` or `catalog`, the zone is fetched from PowerDNS to check
+    those attributes.
     """
     logger.debug("Checking if zone is allowed for given api key")
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_allowed(environment, zone):
-        return ResponseZoneAllowed(zone=zone, allowed=False)
-
-    zone_config = environment.get_zone_if_allowed(zone)
-    return ResponseZoneAllowed(zone=zone, allowed=True, config=zone_config)
+    if environment.global_read_only:
+        named, attr_only = environment.get_zone_candidates(zone)
+        zone_config = None
+        if named:
+            zone_config = named[0]
+        elif attr_only:
+            zone_config = attr_only[0]
+        return ResponseZoneAllowed(zone=zone, allowed=True, config=zone_config)
+    try:
+        zone_config = await resolve_zone_entry(environment, "localhost", zone)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        zone_config = None
+    return ResponseZoneAllowed(
+        zone=zone, allowed=zone_config is not None, config=zone_config
+    )
 
 
 @app.get("/api", dependencies=[Depends(dependency_check_token_defined)])
@@ -381,9 +462,8 @@ async def get_zone_metadata(
     <https://doc.powerdns.com/authoritative/http-api/zone.html#get--servers-server_id-zones-zone_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_allowed(environment, zone_id):
-        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
+    if not environment.global_read_only:
+        await enforce_zone_attr_filters(environment, server_id, zone_id)
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         params=dict(request.query_params),
@@ -406,9 +486,8 @@ async def update_zone_metadata(
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_allowed(environment, zone_id):
-        raise ZoneNotAllowedException()
-    if not check_pdns_zone_admin(environment, zone_id):
+    zone = await enforce_zone_attr_filters(environment, server_id, zone_id)
+    if not zone.admin:
         raise ZoneAdminNotAllowedException()
     resp = await pdns.put(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
@@ -437,10 +516,7 @@ async def update_zone_rrset(
     """
     logger.debug(f"Update RRSet request for {zone_id}")
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_allowed(environment, zone_id):
-        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
-    zone = environment.get_zone_if_allowed(zone_id)
+    zone = await enforce_zone_attr_filters(environment, server_id, zone_id)
     ensure_rrsets_request_allowed(zone, await request.json())
     resp = await pdns.patch(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
@@ -463,7 +539,8 @@ async def delete_zone(server_id: str, zone_id: str, X_API_Key: str = Header()):
     <https://doc.powerdns.com/authoritative/http-api/zone.html#delete--servers-server_id-zones-zone_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_admin(environment, zone_id):
+    zone = await enforce_zone_attr_filters(environment, server_id, zone_id)
+    if not zone.admin:
         raise ZoneNotAllowedException()
     resp = await pdns.delete(f"/api/v1/servers/{server_id}/zones/{zone_id}")
     pdns_response = await handle_pdns_response(resp)
@@ -484,10 +561,8 @@ async def zone_notification(server_id: str, zone_id: str, X_API_Key: str = Heade
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id-notify>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_allowed(environment, zone_id):
-        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
-    if not check_pdns_zone_writable(environment, zone_id):
+    zone = await enforce_zone_attr_filters(environment, server_id, zone_id)
+    if zone.read_only:
         logger.info(f"Zone {zone_id} is read only for environment {environment.name}")
         raise ZoneReadOnlyException()
     resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/notify")
@@ -511,10 +586,8 @@ async def zone_rectification(
     <https://doc.powerdns.com/authoritative/http-api/zone.html#put--servers-server_id-zones-zone_id-rectify>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_allowed(environment, zone_id):
-        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
-    if not check_pdns_zone_writable(environment, zone_id):
+    zone = await enforce_zone_attr_filters(environment, server_id, zone_id)
+    if zone.read_only:
         logger.info(f"Zone {zone_id} is read only for environment {environment.name}")
         raise ZoneReadOnlyException()
     resp = await pdns.put(f"/api/v1/servers/{server_id}/zones/{zone_id}/rectify")
@@ -575,9 +648,7 @@ async def list_cryptokeys(server_id: str, zone_id: str, X_API_Key: str = Header(
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#get--servers-server_id-zones-zone_id-cryptokeys>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_cryptokeys_allowed(environment, zone_id):
-        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
+    await enforce_cryptokeys_access(environment, server_id, zone_id)
     resp = await pdns.get(f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys")
     pdns_response = await handle_pdns_response(resp)
     status_code = pdns_response.raise_for_error()
@@ -596,9 +667,7 @@ async def create_cryptokey(
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#post--servers-server_id-zones-zone_id-cryptokeys>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_cryptokeys_allowed(environment, zone_id):
-        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
+    await enforce_cryptokeys_access(environment, server_id, zone_id)
     resp = await pdns.post(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys",
         payload=await request.json(),
@@ -618,9 +687,7 @@ async def fetch_cryptokey(
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#get--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_cryptokeys_allowed(environment, zone_id):
-        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
+    await enforce_cryptokeys_access(environment, server_id, zone_id)
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}"
     )
@@ -643,9 +710,7 @@ async def update_cryptokey(
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#put--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_cryptokeys_allowed(environment, zone_id):
-        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
+    await enforce_cryptokeys_access(environment, server_id, zone_id)
     resp = await pdns.put(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}",
         payload=await request.json(),
@@ -665,9 +730,7 @@ async def delete_cryptokey(
     <https://doc.powerdns.com/authoritative/http-api/cryptokey.html#delete--servers-server_id-zones-zone_id-cryptokeys-cryptokey_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_cryptokeys_allowed(environment, zone_id):
-        logger.info(f"CryptoKeys not allowed for environment {environment.name}")
-        raise ZoneNotAllowedException()
+    await enforce_cryptokeys_access(environment, server_id, zone_id)
     resp = await pdns.delete(
         f"/api/v1/servers/{server_id}/zones/{zone_id}/cryptokeys/{cryptokey_id}"
     )
