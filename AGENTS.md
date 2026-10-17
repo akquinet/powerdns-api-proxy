@@ -22,9 +22,11 @@ tools through `uv run` (or the Makefile) so they use the locked environment.
   `config-example.yml` works).
 - The lint gate is `make lint`, which runs [prek](https://prek.j178.dev/) on
   `.pre-commit-config.yaml` (a drop-in, faster pre-commit; ruff, pyupgrade,
-  mypy, hadolint, and pre-commit-hooks). The `hadolint-docker` hook needs a
-  running Docker daemon. Dependencies live in `pyproject.toml` and are pinned by
-  `uv.lock`; there are no requirements.txt files.
+  mypy, hadolint, and pre-commit-hooks). The `hadolint` hook is a `system` hook
+  that needs the `hadolint` binary on `PATH` (provided locally by Nix; the CI
+  lint job downloads the pinned release). No Docker daemon is required.
+  Dependencies live in `pyproject.toml` and are pinned by `uv.lock`; there are no
+  requirements.txt files.
 - `pdns.py` has a `# type: ignore[call-arg]` on `verify_ssl=`: aiohttp accepts
   the kwarg at runtime but its type stubs don't, so mypy needs the suppression.
 - LOG_LEVEL defaults to DEBUG and LOG_FILE defaults to a `log` file; set
