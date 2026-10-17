@@ -5,6 +5,7 @@ from typing import Any, TypedDict
 from pydantic import BaseModel, field_validator, model_validator
 
 from powerdns_api_proxy.exceptions import ZoneNotAllowedException
+from powerdns_api_proxy.index_page import DEFAULT_INDEX_HTML
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.utils import (
     check_subzone,
@@ -270,22 +271,7 @@ class ProxyConfig(BaseModel):
     api_docs_enabled: bool = True
 
     index_enabled: bool = True
-    index_html: str = """
-    <html>
-        <head>
-            <title>PowerDNS API Proxy</title>
-        </head>
-        <body>
-            <center>
-            <h1>PowerDNS API Proxy</h1>
-            <p><a href="/docs">Swagger Docs</a></p>
-            <q>The Domain Name Server (DNS) is the Achilles heel of the Web.<br>
-            The important thing is that it's managed responsibly.</q>
-            <p style="margin-top: 1em; font-size: 0.9em; color: #666;">— Tim Berners-Lee</p>
-            </center>
-        </body>
-    </html>
-"""
+    index_html: str = DEFAULT_INDEX_HTML
     # Dictionary for fast token lookups
     token_env_map: dict[str, ProxyConfigEnvironment] = {}
 
