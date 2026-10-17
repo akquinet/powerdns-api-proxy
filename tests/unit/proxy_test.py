@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from collections.abc import Generator
@@ -6,13 +7,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from powerdns_api_proxy.exceptions import NotAuthorizedException, ZoneReadOnlyException
+from powerdns_api_proxy.exceptions import (
+    InvalidPathParameterException,
+    NotAuthorizedException,
+    ZoneReadOnlyException,
+)
 from powerdns_api_proxy.models import (
     ProxyConfig,
     ProxyConfigEnvironment,
     ProxyConfigZone,
 )
-from powerdns_api_proxy.proxy import app
+from powerdns_api_proxy.proxy import app, resolve_zone_entry
 
 client = TestClient(app)
 
@@ -774,3 +779,20 @@ def test_zone_allowed(
         assert data["config"] is not None
         for key, value in expected_config.items():
             assert data["config"][key] == value
+
+
+@pytest.mark.parametrize(
+    "zone", ["", ".", "..", "../config", "../../../servers", "foo/bar"]
+)
+def test_zone_allowed_rejects_unsafe_zone_param(zone):
+    upstream = AsyncMock()
+    answer = _zone_allowed(zone, _config(ProxyConfigZone(kind="Master")), upstream)
+    assert answer.status_code == 400
+    assert answer.json() == {"error": "Invalid value for path parameter zone_id"}
+    upstream.get.assert_not_awaited()
+
+
+def test_resolve_zone_entry_rejects_unsafe_zone_id():
+    environment = _config(ProxyConfigZone(kind="Master")).environments[0]
+    with pytest.raises(InvalidPathParameterException):
+        asyncio.run(resolve_zone_entry(environment, "localhost", "../config"))

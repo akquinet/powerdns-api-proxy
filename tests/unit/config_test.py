@@ -219,6 +219,16 @@ def test_attr_only_zone_with_subzones_raises():
         ProxyConfigZone(kind="Master", subzones=True)
 
 
+def test_zone_with_invalid_regex_raises():
+    with pytest.raises(ValidationError, match="invalid regex"):
+        ProxyConfigZone(name="[", regex=True)
+
+
+def test_zone_with_invalid_regex_record_raises():
+    with pytest.raises(ValidationError, match="invalid regex"):
+        ProxyConfigZone(name="example.com.", regex_records=["["])
+
+
 def test_named_entry_wins_over_attribute_only_regardless_of_order():
     attr_zone = ProxyConfigZone(kind="Master")
     regex_zone = ProxyConfigZone(name=".*\\.example.com", regex=True)

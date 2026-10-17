@@ -121,3 +121,8 @@ def test_zone_without_name_or_filter_from_yaml_raises():
             ENV_PREFIX
             + '    zones:\n      - description: "no name and no attribute filter"\n'
         )
+
+
+def test_zone_with_invalid_regex_from_yaml_raises():
+    with pytest.raises(ValidationError, match="invalid regex"):
+        _load(ENV_PREFIX + '    zones:\n      - name: "["\n        regex: true\n')

@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 from typing import Any, TypedDict
 
@@ -58,6 +59,19 @@ class ProxyConfigZone(BaseModel):
                 raise ValueError(
                     "regex, records, regex_records and subzones require a zone name"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def regexes_compile(self):
+        patterns = [self.name] if self.regex else []
+        patterns.extend(self.regex_records)
+        for pattern in patterns:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(
+                    f'zone "{self.name}" contains an invalid regex {pattern!r}: {exc}'
+                ) from exc
         return self
 
     def __init__(self, **data):

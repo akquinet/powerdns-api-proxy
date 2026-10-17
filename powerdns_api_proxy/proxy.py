@@ -162,7 +162,12 @@ async def resolve_zone_entry(
     Returns None when no entry matches the name or the upstream attributes, so
     callers decide how to treat an unmatched zone. Errors from the upstream
     lookup (for example a 404 for an unknown zone) are propagated.
+
+    The zone id is validated before it is interpolated into the upstream URL,
+    so a caller cannot make the proxy request a different PowerDNS resource.
     """
+    if not check_path_param_safe(zone_id):
+        raise InvalidPathParameterException("zone_id")
     named, attr_only = environment.get_zone_candidates(zone_id)
     if not named and not attr_only:
         return None
