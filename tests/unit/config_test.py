@@ -839,3 +839,32 @@ def test_global_read_only_with_explicit_zones_keeps_zone_permissions():
     assert len(env._zones_lookup) == 2
     assert "example.com" in env._zones_lookup
     assert "readonly.com" in env._zones_lookup
+
+
+def test_read_only_zone_rejects_admin():
+    with pytest.raises(ValueError, match="read_only"):
+        ProxyConfigZone(name="example.com", read_only=True, admin=True)
+
+
+def test_read_only_zone_rejects_cryptokeys():
+    with pytest.raises(ValueError, match="read_only"):
+        ProxyConfigZone(name="example.com", read_only=True, cryptokeys=True)
+
+
+def test_read_only_zone_rejects_admin_and_cryptokeys():
+    with pytest.raises(ValueError, match="read_only"):
+        ProxyConfigZone(name="example.com", read_only=True, admin=True, cryptokeys=True)
+
+
+def test_read_only_zone_allows_plain_read_only():
+    zone = ProxyConfigZone(name="example.com", read_only=True)
+    assert zone.read_only is True
+    assert zone.admin is False
+    assert zone.cryptokeys is False
+
+
+def test_writable_zone_allows_admin_and_cryptokeys():
+    zone = ProxyConfigZone(name="example.com", admin=True, cryptokeys=True)
+    assert zone.admin is True
+    assert zone.cryptokeys is True
+    assert zone.read_only is False

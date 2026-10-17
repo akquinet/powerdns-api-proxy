@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import TypedDict
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.utils import (
@@ -50,6 +50,25 @@ class ProxyConfigZone(BaseModel):
             )
             self.all_records = True
             self.services.acme = True
+
+    @model_validator(mode="after")
+    def read_only_excludes_write_access(self):
+        if self.read_only:
+            conflicting = [
+                flag
+                for flag, enabled in (
+                    ("admin", self.admin),
+                    ("cryptokeys", self.cryptokeys),
+                )
+                if enabled
+            ]
+            if conflicting:
+                raise ValueError(
+                    f'zone "{self.name}" sets read_only together with '
+                    f"{', '.join(conflicting)}; read_only removes all write "
+                    f"access, so those flags cannot be combined"
+                )
+        return self
 
 
 class ProxyConfigEnvironment(BaseModel):
