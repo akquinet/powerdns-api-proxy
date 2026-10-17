@@ -8,8 +8,8 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 # Must be set before importing the proxy, which loads the config at import time
 os.environ["PROXY_CONFIG_PATH"] = "./config-example.yml"
 
-from powerdns_api_proxy import middleware  # noqa: E402
-from powerdns_api_proxy.proxy import app  # noqa: E402
+from powerdns_api_proxy import middleware
+from powerdns_api_proxy.proxy import app
 
 
 @pytest.fixture

@@ -24,6 +24,7 @@ dev = [
     "prek==0.5.5",
     "pytest==9.0.3",
     "pytest-cov==7.0.0",
+    "ruff==0.16.10",
     "types-PyYAML",
 ]
 

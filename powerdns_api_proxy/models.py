@@ -93,11 +93,9 @@ class ProxyConfigZone(BaseModel):
             return False
         if self.account and (pdns_zone.get("account") or "") != self.account:
             return False
-        if self.catalog and not check_zones_equal(
+        return not self.catalog or check_zones_equal(
             pdns_zone.get("catalog") or "", self.catalog
-        ):
-            return False
-        return True
+        )
 
     @model_validator(mode="after")
     def read_only_excludes_write_access(self):
@@ -164,7 +162,10 @@ class ProxyConfigEnvironment(BaseModel):
             + str(self.zones)
         )
 
-    @lru_cache(maxsize=10000)
+    # B019: the environment is a long-lived singleton (config is loaded once),
+    # so the cache cannot keep it alive beyond process lifetime. maxsize bounds
+    # memory and the returned tuples are immutable.
+    @lru_cache(maxsize=10000)  # noqa: B019
     def get_zone_candidates(
         self, zone: str
     ) -> tuple[tuple[ProxyConfigZone, ...], tuple[ProxyConfigZone, ...]]:
@@ -223,7 +224,9 @@ class ProxyConfigEnvironment(BaseModel):
                 return entry
         return None
 
-    @lru_cache(maxsize=10000)
+    # B019: see get_zone_candidates above for the rationale. maxsize keeps the
+    # retained zone configs bounded, which is negligible for a singleton.
+    @lru_cache(maxsize=10000)  # noqa: B019
     def get_zone_if_allowed(self, zone: str) -> ProxyConfigZone:
         """
         Returns the zone config for the given zone name.

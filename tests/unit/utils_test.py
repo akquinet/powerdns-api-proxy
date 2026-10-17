@@ -3,9 +3,9 @@ import yaml
 
 from powerdns_api_proxy.utils import (
     check_path_param_safe,
+    check_record_in_regex,
     check_subzone,
     check_zone_in_regex,
-    check_record_in_regex,
     check_zones_equal,
 )
 from tests.fixtures import FIXTURES_DIR

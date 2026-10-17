@@ -1,14 +1,13 @@
 import json
-import aiohttp
 from json.decoder import JSONDecodeError
 from typing import Any
 
+import aiohttp
 from fastapi import HTTPException
 
 from powerdns_api_proxy.exceptions import UnhandledException, UpstreamException
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.utils import is_sensitive_path
-
 
 # Type definitions for PowerDNS API responses
 PDNSResponseStr = str
@@ -95,7 +94,11 @@ class PDNSConnector:
         }
 
     async def request(
-        self, method: str, path: str, params: dict = {}, payload: dict = {}
+        self,
+        method: str,
+        path: str,
+        params: dict | None = None,
+        payload: dict | None = None,
     ):
         # Avoid leaking secret material (DNSSEC private keys, TSIG keys) into logs.
         sensitive_path = is_sensitive_path(path)
@@ -105,34 +108,46 @@ class PDNSConnector:
             f"params: {params}, payload: {logged_payload}"
         )
 
-        async with aiohttp.ClientSession(
-            base_url=self.base_url, headers=self.headers
-        ) as session:
-            async with session.request(
+        async with (
+            aiohttp.ClientSession(
+                base_url=self.base_url, headers=self.headers
+            ) as session,
+            session.request(
                 method,
                 url=path,
                 params=params,
                 json=payload,
                 verify_ssl=self.verify_ssl,  # type: ignore[call-arg]
-            ) as req:
-                text = await req.text()
-                logged_text = "<redacted>" if sensitive_path else text
-                logger.debug(
-                    f'Got answer from upstream PDNS API Status: {req.status}, text: "{logged_text}"'
-                )
-                return req
+            ) as req,
+        ):
+            text = await req.text()
+            logged_text = "<redacted>" if sensitive_path else text
+            logger.debug(
+                f'Got answer from upstream PDNS API Status: {req.status}, text: "{logged_text}"'
+            )
+            return req
 
-    async def get(self, path: str, params: dict = {}) -> aiohttp.ClientResponse:
+    async def get(
+        self, path: str, params: dict | None = None
+    ) -> aiohttp.ClientResponse:
         return await self.request("GET", path, params=params)
 
-    async def post(self, path: str, payload: dict = {}) -> aiohttp.ClientResponse:
+    async def post(
+        self, path: str, payload: dict | None = None
+    ) -> aiohttp.ClientResponse:
         return await self.request("POST", path, payload=payload)
 
-    async def put(self, path: str, payload: dict = {}) -> aiohttp.ClientResponse:
+    async def put(
+        self, path: str, payload: dict | None = None
+    ) -> aiohttp.ClientResponse:
         return await self.request("PUT", path, payload=payload)
 
-    async def patch(self, path: str, payload: dict = {}) -> aiohttp.ClientResponse:
+    async def patch(
+        self, path: str, payload: dict | None = None
+    ) -> aiohttp.ClientResponse:
         return await self.request("PATCH", path, payload=payload)
 
-    async def delete(self, path: str, payload: dict = {}) -> aiohttp.ClientResponse:
+    async def delete(
+        self, path: str, payload: dict | None = None
+    ) -> aiohttp.ClientResponse:
         return await self.request("DELETE", path, payload=payload)
