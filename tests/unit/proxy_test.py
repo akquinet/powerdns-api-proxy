@@ -93,6 +93,35 @@ def test_index_disabled():
         assert response.status_code == 404
 
 
+def test_health_liveness_without_token():
+    answer = client.get("/health")
+    assert answer.status_code == 200
+    assert answer.json() == {"status": "ok"}
+
+
+def test_health_pdns_missing_token():
+    _token_missing_request(client, "GET", "/health/pdns")
+
+
+def test_health_pdns_wrong_token():
+    _wrong_token_request(client, "GET", "/health/pdns")
+
+
+def test_health_pdns_valid_token(fixture_patch_dummy_config):
+    pdns_response = MagicMock()
+    pdns_response.status = 200
+    with patch(
+        "powerdns_api_proxy.proxy.pdns.get",
+        new_callable=AsyncMock,
+        return_value=pdns_response,
+    ) as get:
+        answer = client.get(
+            "/health/pdns", headers={"X-API-Key": dummy_proxy_environment_token}
+        )
+    assert answer.status_code == 200
+    get.assert_awaited_once()
+
+
 def test_api_root(fixture_patch_dummy_config):
     answer = client.get("/api", headers={"X-API-Key": dummy_proxy_environment_token})
     data = answer.json()
