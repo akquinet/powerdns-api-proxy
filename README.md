@@ -495,8 +495,8 @@ environment:
 
 #### Analyzing audit logs
 
-With JSON format enabled, `jq` can filter and analyze audit logs (the container
-image ships `jq`):
+With JSON format enabled, `jq` can filter and analyze audit logs
+piped from the container:
 
 ```bash
 # Filter only audit events

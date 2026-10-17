@@ -17,10 +17,6 @@ RUN uv sync --frozen --no-dev
 
 FROM docker.io/python:3.14.1-slim@sha256:b823ded4377ebb5ff1af5926702df2284e53cecbc6e3549e93a19d8632a1897e
 
-# hadolint ignore=DL3008
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
@@ -36,5 +32,6 @@ RUN : \
     && chown -R appuser /app && chmod -R 0750 /app
 USER appuser
 
+EXPOSE 8000
 
 CMD ["python", "-m", "powerdns_api_proxy"]
