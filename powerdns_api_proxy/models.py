@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -73,6 +73,18 @@ class ProxyConfigZone(BaseModel):
     def has_attribute_filter(self) -> bool:
         return bool(self.kind or self.account or self.catalog)
 
+    def matches_attrs(self, pdns_zone: dict[str, Any]) -> bool:
+        """Returns True if the upstream zone matches kind/account/catalog."""
+        if self.kind and pdns_zone.get("kind", "").lower() != self.kind.lower():
+            return False
+        if self.account and (pdns_zone.get("account") or "") != self.account:
+            return False
+        if self.catalog and not check_zones_equal(
+            pdns_zone.get("catalog") or "", self.catalog
+        ):
+            return False
+        return True
+
     @model_validator(mode="after")
     def read_only_excludes_write_access(self):
         if self.read_only:
@@ -141,14 +153,17 @@ class ProxyConfigEnvironment(BaseModel):
     @lru_cache(maxsize=10000)
     def get_zone_candidates(
         self, zone: str
-    ) -> tuple[list[ProxyConfigZone], list[ProxyConfigZone]]:
+    ) -> tuple[tuple[ProxyConfigZone, ...], tuple[ProxyConfigZone, ...]]:
         """
         Returns the config entries that can govern the given zone name.
 
-        The first list contains named entries in precedence order (exact name
-        first, then matches in list order). The second list contains
+        The first tuple contains named entries in precedence order (exact name
+        first, then matches in list order). The second tuple contains
         attribute-only entries, which can only be selected once the upstream
         zone attributes are known.
+
+        Tuples are returned because this method is cached, so callers must not
+        be able to mutate the cached value.
         """
         named: list[ProxyConfigZone] = []
         exact = self._zones_lookup.get(zone)
@@ -163,7 +178,36 @@ class ProxyConfigEnvironment(BaseModel):
                 or (z.regex and check_zone_in_regex(zone, z.name))
             ):
                 named.append(z)
-        return named, [z for z in self.zones if not z.name]
+        return tuple(named), tuple(z for z in self.zones if not z.name)
+
+    def get_zone_entry(
+        self, zone: str, pdns_zone: dict[str, Any] | None = None
+    ) -> ProxyConfigZone | None:
+        """
+        Returns the config entry that governs the given zone name, or None.
+
+        Entries that match by name take precedence; among those, the first one
+        whose attributes match wins. If a named entry matched the name but not
+        its attributes, attribute-only entries are not consulted, so an
+        explicit entry is never overridden by a wildcard. When `pdns_zone` is
+        None, attributes are unknown: only named entries can match and their
+        attribute filters are ignored, which is what zone creation uses.
+
+        `pdns_zone` is the upstream zone object, containing at least `kind`,
+        `account` and `catalog` when filters are configured.
+        """
+        named, attr_only = self.get_zone_candidates(zone)
+        if pdns_zone is None:
+            return named[0] if named else None
+        for entry in named:
+            if entry.matches_attrs(pdns_zone):
+                return entry
+        if named:
+            return None
+        for entry in attr_only:
+            if entry.matches_attrs(pdns_zone):
+                return entry
+        return None
 
     @lru_cache(maxsize=10000)
     def get_zone_if_allowed(self, zone: str) -> ProxyConfigZone:
@@ -172,30 +216,13 @@ class ProxyConfigEnvironment(BaseModel):
 
         This is a name-only lookup (exact name, subzones, regex). It ignores
         `kind`, `account` and `catalog`, so attribute-only entries never match
-        here and named entries match regardless of their attributes. Use
-        `get_zone_candidates` together with `select_matching_zone_entry` for
-        attribute-aware checks.
+        here and named entries match regardless of their attributes.
         Raises ZoneNotAllowedException if the zone is not allowed
         """
-        if zone in self._zones_lookup:
-            return self._zones_lookup[zone]
-
-        for z in self.zones:
-            if not z.name:
-                continue
-
-            if check_zones_equal(zone, z.name):
-                return z
-
-            if z.subzones and check_subzone(zone, z.name):
-                logger.debug(f'"{zone}" is a subzone of "{z.name}"')
-                return z
-
-            if z.regex and check_zone_in_regex(zone, z.name):
-                logger.debug(f'"{zone}" matches regex "{z.name}"')
-                return z
-
-        raise ZoneNotAllowedException()
+        entry = self.get_zone_entry(zone)
+        if entry is None:
+            raise ZoneNotAllowedException()
+        return entry
 
 
 class ProxyConfig(BaseModel):

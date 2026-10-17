@@ -13,13 +13,11 @@ from powerdns_api_proxy.config import (
     check_pdns_tsigkeys_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
-    check_pdns_zone_attrs_allowed,
     check_rrset_allowed,
     check_token_defined,
     ensure_rrsets_request_allowed,
     get_environment_for_token,
     get_only_pdns_zones_allowed,
-    select_matching_zone_entry,
     token_defined,
 )
 from powerdns_api_proxy.exceptions import (
@@ -144,38 +142,30 @@ def test_get_only_pdns_zones_allowed_by_account_and_catalog():
     assert [z["name"] for z in allowed] == ["public.example.com."]
 
 
-def test_check_pdns_zone_attrs_allowed_kind_is_case_insensitive():
-    zone = ProxyConfigZone(name="example.com.", kind="master")
-    assert check_pdns_zone_attrs_allowed(zone, {"kind": "Master"})
-
-
-def test_check_pdns_zone_attrs_allowed_no_filter():
-    zone = ProxyConfigZone(name="example.com.")
-    assert check_pdns_zone_attrs_allowed(zone, {})
-
-
-def test_check_pdns_zone_attrs_allowed_kind_mismatch():
-    zone = ProxyConfigZone(name="example.com.", kind="Master")
-    assert not check_pdns_zone_attrs_allowed(zone, {"kind": "Slave"})
-
-
-def test_check_pdns_zone_attrs_allowed_account_mismatch():
-    zone = ProxyConfigZone(name="example.com.", account="public")
-    assert not check_pdns_zone_attrs_allowed(
-        zone, {"account": "other", "kind": "Slave"}
-    )
-
-
-def test_check_pdns_zone_attrs_allowed_catalog_ignores_trailing_dot():
-    zone = ProxyConfigZone(name="example.com.", catalog="default-catalog.invalid")
-    assert check_pdns_zone_attrs_allowed(zone, {"catalog": "default-catalog.invalid."})
-    dotted = ProxyConfigZone(name="example.com.", catalog="default-catalog.invalid.")
-    assert check_pdns_zone_attrs_allowed(dotted, {"catalog": "default-catalog.invalid"})
-
-
-def test_check_pdns_zone_attrs_allowed_catalog_missing_upstream():
-    zone = ProxyConfigZone(name="example.com.", catalog="default-catalog.invalid")
-    assert not check_pdns_zone_attrs_allowed(zone, {"kind": "Master"})
+@pytest.mark.parametrize(
+    "zone_kwargs,pdns_zone,expected",
+    [
+        ({}, {}, True),
+        ({"kind": "master"}, {"kind": "Master"}, True),
+        ({"kind": "Master"}, {"kind": "Slave"}, False),
+        ({"account": "public"}, {"account": "other", "kind": "Slave"}, False),
+        (
+            {"catalog": "default-catalog.invalid"},
+            {"catalog": "default-catalog.invalid."},
+            True,
+        ),
+        (
+            {"catalog": "default-catalog.invalid."},
+            {"catalog": "default-catalog.invalid"},
+            True,
+        ),
+        ({"catalog": "default-catalog.invalid"}, {"kind": "Master"}, False),
+        ({"kind": "Master", "account": "public"}, {"kind": "Master"}, False),
+    ],
+)
+def test_zone_matches_attrs(zone_kwargs, pdns_zone, expected):
+    zone = ProxyConfigZone(name="example.com.", **zone_kwargs)
+    assert zone.matches_attrs(pdns_zone) is expected
 
 
 def test_attribute_only_zone_never_matches_by_name():
@@ -251,8 +241,8 @@ def test_attribute_only_candidates_when_no_named_entry_matches():
         zones=[regex_zone, attr_zone],
     )
     named, attr_only = env.get_zone_candidates("master.example.com.")
-    assert named == []
-    assert attr_only == [attr_zone]
+    assert named == ()
+    assert attr_only == (attr_zone,)
 
 
 def test_get_only_pdns_zones_allowed_glboal_read_only():
@@ -959,26 +949,46 @@ def test_writable_zone_allows_admin_and_cryptokeys():
     assert zone.read_only is False
 
 
-def test_select_matching_zone_entry_uses_later_attribute_only_entry():
-    master = ProxyConfigZone(kind="Master")
-    public = ProxyConfigZone(account="public", admin=True)
+def _entry_env(*zones: ProxyConfigZone) -> ProxyConfigEnvironment:
+    return ProxyConfigEnvironment(
+        name="Entry Resolution",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=list(zones),
+    )
+
+
+def test_get_zone_entry_uses_later_attribute_only_entry():
     pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
-    selected = select_matching_zone_entry([], [master, public], pdns_zone)
-    assert selected is public
+    env = _entry_env(
+        ProxyConfigZone(kind="Master"),
+        ProxyConfigZone(account="public", admin=True),
+    )
+    selected = env.get_zone_entry("slave.example.com.", pdns_zone)
+    assert selected is not None and selected.admin is True
 
 
-def test_select_matching_zone_entry_named_mismatch_does_not_fall_back():
+def test_get_zone_entry_named_mismatch_does_not_fall_back():
+    pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
+    env = _entry_env(
+        ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Master"),
+        ProxyConfigZone(account="public"),
+    )
+    assert env.get_zone_entry("slave.example.com.", pdns_zone) is None
+
+
+def test_get_zone_entry_named_entry_wins_over_attribute_only():
+    pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
+    regex_zone = ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Slave")
+    env = _entry_env(regex_zone, ProxyConfigZone(account="public"))
+    assert env.get_zone_entry("slave.example.com.", pdns_zone) is regex_zone
+
+
+def test_get_zone_entry_without_upstream_ignores_attr_only_entries():
+    pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
     named = ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Master")
-    wildcard = ProxyConfigZone(account="public")
-    pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
-    assert select_matching_zone_entry([named], [wildcard], pdns_zone) is None
-
-
-def test_select_matching_zone_entry_named_entry_wins_over_attribute_only():
-    named = ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Slave")
-    wildcard = ProxyConfigZone(account="public")
-    pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
-    assert select_matching_zone_entry([named], [wildcard], pdns_zone) is named
+    wildcard = ProxyConfigZone(account="public", admin=True)
+    env = _entry_env(named, wildcard)
+    assert env.get_zone_entry("slave.example.com.", pdns_zone) is None
 
 
 def test_get_only_pdns_zones_allowed_uses_matching_attribute_only_entry():

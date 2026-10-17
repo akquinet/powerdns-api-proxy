@@ -2,7 +2,7 @@ import hashlib
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -11,7 +11,6 @@ from yaml import safe_load
 from powerdns_api_proxy.exceptions import (
     MetricsNotAllowedException,
     NotAuthorizedException,
-    ZoneNotAllowedException,
 )
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.models import (
@@ -116,75 +115,21 @@ def get_only_pdns_zones_allowed(
         return pdns_zones
 
     for zone in pdns_zones:
-        named, attr_only = environment.get_zone_candidates(zone["name"])
-        if not named and not attr_only:
-            continue
-        if select_matching_zone_entry(named, attr_only, zone) is not None:
+        if environment.get_zone_entry(zone["name"], zone) is not None:
             filtered.append(zone)
     return filtered
 
 
-def check_pdns_zone_attrs_allowed(
-    zone: ProxyConfigZone, pdns_zone: dict[str, Any]
-) -> bool:
-    """Returns True if the upstream zone matches the configured kind/account/catalog"""
-    if zone.kind and pdns_zone.get("kind", "").lower() != zone.kind.lower():
-        return False
-    if zone.account and pdns_zone.get("account", "") != zone.account:
-        return False
-    if zone.catalog and not check_zones_equal(
-        pdns_zone.get("catalog") or "", zone.catalog
-    ):
-        return False
-    return True
-
-
-def select_matching_zone_entry(
-    named: list[ProxyConfigZone],
-    attr_only: list[ProxyConfigZone],
-    pdns_zone: dict[str, Any],
-) -> ProxyConfigZone | None:
-    """Returns the first entry whose attributes match, or None if none does.
-
-    Named entries that match the zone name take precedence. If at least one
-    such entry exists, the zone is denied when none of them matches its
-    attributes; attribute-only entries are not consulted afterwards, because an
-    explicit entry must not be overridden by a wildcard.
-    """
-    for zone in named:
-        if check_pdns_zone_attrs_allowed(zone, pdns_zone):
-            return zone
-    if named:
-        return None
-    for zone in attr_only:
-        if check_pdns_zone_attrs_allowed(zone, pdns_zone):
-            return zone
-    return None
-
-
 def check_pdns_zone_allowed(environment: ProxyConfigEnvironment, zone: str) -> bool:
     """Returns True if zone is allowed in the environment"""
-    if environment.global_read_only:
-        return True
-
-    try:
-        _ = environment.get_zone_if_allowed(zone)
-        return True
-    except ZoneNotAllowedException:
-        return False
-    except Exception:
-        return False
+    return environment.global_read_only or (
+        environment.get_zone_entry(zone) is not None
+    )
 
 
 def check_pdns_zone_admin(environment: ProxyConfigEnvironment, zone: str) -> bool:
-    try:
-        env_zone = environment.get_zone_if_allowed(zone)
-        return env_zone.admin
-    except ZoneNotAllowedException:
-        pass
-    except Exception:
-        pass
-    return False
+    entry = environment.get_zone_entry(zone)
+    return entry is not None and entry.admin
 
 
 def check_pdns_search_allowed(

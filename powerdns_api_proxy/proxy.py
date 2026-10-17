@@ -29,7 +29,6 @@ from powerdns_api_proxy.config import (
     get_environment_for_token,
     get_only_pdns_zones_allowed,
     load_config,
-    select_matching_zone_entry,
 )
 from powerdns_api_proxy.exceptions import (
     InvalidPathParameterException,
@@ -39,7 +38,6 @@ from powerdns_api_proxy.exceptions import (
     UpstreamException,
     ZoneAdminNotAllowedException,
     ZoneNotAllowedException,
-    ZoneNotConfiguredException,
     ZoneReadOnlyException,
 )
 from powerdns_api_proxy.logging import logger
@@ -161,14 +159,13 @@ async def resolve_zone_entry(
 ) -> ProxyConfigZone | None:
     """Resolve the zone entry that governs a single zone, or None.
 
-    Returns None when no candidate matches, so callers decide how to treat an
-    unmatched zone. Raises ZoneNotConfiguredException when no entry matches the
-    name at all. Errors from the upstream lookup (for example a 404 for an
-    unknown zone) are propagated.
+    Returns None when no entry matches the name or the upstream attributes, so
+    callers decide how to treat an unmatched zone. Errors from the upstream
+    lookup (for example a 404 for an unknown zone) are propagated.
     """
     named, attr_only = environment.get_zone_candidates(zone_id)
     if not named and not attr_only:
-        raise ZoneNotConfiguredException()
+        return None
     if named and not named[0].has_attribute_filter:
         return named[0]
     resp = await pdns.get(
@@ -180,7 +177,7 @@ async def resolve_zone_entry(
     if not isinstance(pdns_response.data, dict):
         logger.error(f"We expected powerdns to return json: {pdns_response.data}")
         raise UpstreamException()
-    return select_matching_zone_entry(named, attr_only, pdns_response.data)
+    return environment.get_zone_entry(zone_id, pdns_response.data)
 
 
 async def enforce_zone_attr_filters(
@@ -191,16 +188,14 @@ async def enforce_zone_attr_filters(
     Returns the selected zone entry. Entries that match by name are preferred.
     Attribute filters require the upstream zone, so it is fetched once when the
     first matching entry carries a filter or when no named entry matches.
-    Raises ZoneNotAllowedException when no entry matches the upstream
-    attributes, and ZoneNotConfiguredException when no entry matches the name.
-    Reads in global_read_only environments skip this check entirely; callers
-    decide how to treat zones that resolve to None.
+    Raises ZoneNotAllowedException when no entry matches.
+
+    Callers skip this check for reads in global_read_only environments
+    (see get_zone_metadata).
     """
     env_zone = await resolve_zone_entry(environment, server_id, zone_id)
     if env_zone is None:
-        logger.info(
-            f"Zone {zone_id} attributes not allowed for environment {environment.name}"
-        )
+        logger.info(f"Zone {zone_id} not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
     return env_zone
 
@@ -209,15 +204,10 @@ async def enforce_cryptokeys_access(
     environment: ProxyConfigEnvironment, server_id: str, zone_id: str
 ) -> None:
     """Enforce attribute filters and the cryptokeys permission for a zone."""
-    try:
-        env_zone = await enforce_zone_attr_filters(environment, server_id, zone_id)
-    except ZoneNotConfiguredException:
-        if not environment.global_read_only:
-            raise
-        env_zone = None
-    if not environment.global_cryptokeys and not (
-        env_zone is not None and env_zone.cryptokeys
-    ):
+    if environment.global_cryptokeys:
+        return
+    zone = await enforce_zone_attr_filters(environment, server_id, zone_id)
+    if not zone.cryptokeys:
         logger.info(f"CryptoKeys not allowed for environment {environment.name}")
         raise ZoneNotAllowedException()
 
@@ -291,12 +281,10 @@ async def get_zone_allowed(zone: str, X_API_Key: str = Header()):
         return ResponseZoneAllowed(zone=zone, allowed=True, config=zone_config)
     try:
         zone_config = await resolve_zone_entry(environment, "localhost", zone)
-    except ZoneNotConfiguredException:
-        return ResponseZoneAllowed(zone=zone, allowed=False)
     except HTTPException as exc:
         if exc.status_code != 404:
             raise
-        return ResponseZoneAllowed(zone=zone, allowed=False)
+        zone_config = None
     return ResponseZoneAllowed(
         zone=zone, allowed=zone_config is not None, config=zone_config
     )
