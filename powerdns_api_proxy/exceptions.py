@@ -7,6 +7,10 @@ class ZoneNotAllowedException(HTTPException):
         self.detail = "Zone not allowed"
 
 
+class ZoneNotConfiguredException(ZoneNotAllowedException):
+    pass
+
+
 class ZoneAdminNotAllowedException(HTTPException):
     def __init__(self):
         self.status_code = 403

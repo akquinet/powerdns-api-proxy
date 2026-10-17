@@ -382,6 +382,7 @@ def test_zone_attr_filter_rejects_mismatching_zone():
         answer = _get_zone("slave.example.com.", upstream)
     assert answer.status_code == 403
     assert upstream.get.call_count == 1
+    assert upstream.get.call_args.kwargs["params"] == {"rrsets": "false"}
 
 
 def test_zone_attr_filter_allows_matching_zone():
@@ -516,5 +517,153 @@ def test_attr_entry_does_not_fetch_for_plain_name_zone():
     upstream.get = AsyncMock(return_value=_FakeUpstreamResponse(zone_data))
     with patch("powerdns_api_proxy.proxy.config", config_obj):
         answer = _get_zone("plain.example.com.", upstream)
+    assert answer.status_code == 200
+    assert upstream.get.call_count == 1
+
+
+def _multi_attr_config(*zones: ProxyConfigZone) -> ProxyConfig:
+    environment = ProxyConfigEnvironment(
+        name="Multiple Attribute Entries",
+        zones=list(zones),
+        token_sha512=dummy_proxy_environment_token_sha512,
+    )
+    return ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+
+
+def test_zone_allowed_by_second_attribute_only_entry():
+    zone_data = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
+    config_obj = _multi_attr_config(
+        ProxyConfigZone(kind="Master"), ProxyConfigZone(account="public")
+    )
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(
+        side_effect=[
+            _FakeUpstreamResponse(zone_data),
+            _FakeUpstreamResponse(zone_data),
+        ]
+    )
+    with patch("powerdns_api_proxy.proxy.config", config_obj):
+        answer = _get_zone("slave.example.com.", upstream)
+    assert answer.status_code == 200
+    assert upstream.get.call_count == 2
+
+
+def test_matching_attribute_only_entry_supplies_permissions():
+    zone_data = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
+    config_obj = _multi_attr_config(
+        ProxyConfigZone(kind="Master"),
+        ProxyConfigZone(account="public", admin=True),
+    )
+    fetch_response = MagicMock()
+    fetch_response.data = zone_data
+    fetch_response.raise_for_error.return_value = 200
+    delete_response = MagicMock()
+    delete_response.data = {}
+    delete_response.raise_for_error.return_value = 204
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse(zone_data))
+    with (
+        patch("powerdns_api_proxy.proxy.config", config_obj),
+        patch("powerdns_api_proxy.proxy.pdns", upstream),
+        patch(
+            "powerdns_api_proxy.proxy.handle_pdns_response",
+            new_callable=AsyncMock,
+            side_effect=[fetch_response, delete_response],
+        ),
+    ):
+        answer = client.delete(
+            "/api/v1/servers/localhost/zones/slave.example.com.",
+            headers={"X-API-Key": dummy_proxy_environment_token},
+        )
+    assert answer.status_code == 204
+    assert upstream.get.call_count == 1
+    upstream.delete.assert_awaited_once()
+
+
+def test_named_attribute_mismatch_does_not_fall_back_to_wildcard():
+    named = ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Master")
+    wildcard = ProxyConfigZone(account="public")
+    config_obj = _multi_attr_config(named, wildcard)
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(
+        return_value=_FakeUpstreamResponse(
+            {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
+        )
+    )
+    with patch("powerdns_api_proxy.proxy.config", config_obj):
+        answer = _get_zone("slave.example.com.", upstream)
+    assert answer.status_code == 403
+
+
+def test_get_unlisted_zone_allowed_in_global_read_only():
+    config = _global_read_only_config()
+    zone_data = {"name": "unlisted.example.com.", "kind": "Native"}
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse(zone_data))
+    with patch("powerdns_api_proxy.proxy.config", config):
+        answer = _get_zone("unlisted.example.com.", upstream)
+    assert answer.status_code == 200
+    assert upstream.get.call_count == 1
+
+
+def test_patch_unlisted_zone_rejected_in_global_read_only():
+    config = _global_read_only_config()
+    upstream = AsyncMock()
+    with (
+        patch("powerdns_api_proxy.proxy.config", config),
+        patch("powerdns_api_proxy.proxy.pdns", upstream),
+    ):
+        answer = client.patch(
+            "/api/v1/servers/localhost/zones/unlisted.example.com.",
+            headers={"X-API-Key": dummy_proxy_environment_token},
+            json={"rrsets": []},
+        )
+    assert answer.status_code == 403
+    upstream.patch.assert_not_awaited()
+
+
+def test_get_attr_mismatch_rejected_in_global_read_only():
+    zone = ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Master")
+    environment = ProxyConfigEnvironment(
+        name="Global Read Only Attributes",
+        zones=[zone],
+        token_sha512=dummy_proxy_environment_token_sha512,
+        global_read_only=True,
+    )
+    config_obj = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse({"kind": "Slave"}))
+    with patch("powerdns_api_proxy.proxy.config", config_obj):
+        answer = _get_zone("slave.example.com.", upstream)
+    assert answer.status_code == 403
+
+
+def test_cryptokeys_unlisted_zone_allowed_in_global_read_only():
+    environment = ProxyConfigEnvironment(
+        name="Global Cryptokeys",
+        zones=[],
+        token_sha512=dummy_proxy_environment_token_sha512,
+        global_read_only=True,
+        global_cryptokeys=True,
+    )
+    config_obj = ProxyConfig(
+        pdns_api_token="blaaa",
+        pdns_api_url="bluub",
+        environments=[environment],
+    )
+    upstream = AsyncMock()
+    upstream.get = AsyncMock(return_value=_FakeUpstreamResponse([{"id": 1}]))
+    with patch("powerdns_api_proxy.proxy.config", config_obj):
+        answer = _get_cryptokeys(
+            "unlisted.example.com.", dummy_proxy_environment_token, upstream
+        )
     assert answer.status_code == 200
     assert upstream.get.call_count == 1

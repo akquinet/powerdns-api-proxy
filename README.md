@@ -180,28 +180,35 @@ A zone entry without a `name` matches by attribute only, so all zones with that
 `kind`, `account` or `catalog` are allowed without listing their names:
 
 ```yaml
-...
 environments:
-    - name: "Test1"
-      ...
-      zones:
-        - kind: "Master"
-        - account: "public"
+  - name: "Test1"
+    zones:
+      - kind: "Master"
+      - account: "public"
 ```
 
 A zone entry needs either a `name` or one of the attribute filters. An entry
 without a `name` cannot set `regex`, `records`, `regex_records` or `subzones`,
 because those compare against the zone name. Permissions like `admin` or
 `read_only` on an attribute-only entry apply to every zone it matches, so treat
-such an entry as a wildcard and put it after the more specific entries.
+such an entry as a wildcard. Entries with a `name` are matched first (exact
+name, then `subzones`, then `regex`), so an attribute-only entry only applies to
+zones that no named entry matches.
 
 The filter applies to the zone listing, to requests for a single zone and to a
 zone's `cryptokeys` endpoints. It cannot be applied when creating a zone, because
-the zone does not exist in PowerDNS yet. When several zone entries match, the
-first one in the list wins.
+the zone does not exist in PowerDNS yet.
 
-In a `global_read_only` environment all zones stay readable. Attribute filters on
-the listed entries still narrow the zone listing, but zones that are not listed
+When several entries match a zone, the first one whose name and attributes match
+wins. Named entries are checked before attribute-only entries. If a named entry
+matches the zone name but not its attributes, the request is denied and
+attribute-only entries are not consulted, so an explicit entry always restricts
+its zone. Among attribute-only entries, the first one whose attributes match
+wins, which also determines the permissions that apply.
+
+In a `global_read_only` environment all zones stay readable, so attribute
+filters do not narrow the zone listing. Single-zone requests are still
+attribute-checked for zones that match a listed entry; zones that are not listed
 remain readable without an attribute check.
 
 ### ACME challenges
@@ -338,7 +345,7 @@ environments:
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `name` | required | Zone name, or a regex when `regex: true` |
+| `name` | `""` | Zone name, or a regex when `regex: true`; required unless a `kind`/`account`/`catalog` filter is set |
 | `description` | `""` | Free-form description; visible in `/info/allowed` |
 | `regex` | `false` | Treat `name` as a regex |
 | `records` | `[]` | Record names with write access |
@@ -347,6 +354,9 @@ environments:
 | `admin` | `false` | Allow creating and deleting the zone |
 | `subzones` | `false` | Apply the permissions to all subzones |
 | `cryptokeys` | `false` | Allow DNSSEC key management in the zone |
+| `kind` | `""` | Filter by upstream zone kind (`Master`, `Slave`, `Native`, `Producer`, `Consumer`); case-insensitive |
+| `account` | `""` | Filter by upstream zone account (exact match) |
+| `catalog` | `""` | Filter by upstream catalog zone (exact match) |
 | `services.acme` | see above | Allow ACME challenge records |
 
 `all_records` is not configured directly: it is enabled automatically when a

@@ -69,6 +69,10 @@ class ProxyConfigZone(BaseModel):
             self.all_records = True
             self.services.acme = True
 
+    @property
+    def has_attribute_filter(self) -> bool:
+        return bool(self.kind or self.account or self.catalog)
+
     @model_validator(mode="after")
     def read_only_excludes_write_access(self):
         if self.read_only:
@@ -134,6 +138,32 @@ class ProxyConfigEnvironment(BaseModel):
             + str(self.zones)
         )
 
+    def get_zone_candidates(
+        self, zone: str
+    ) -> tuple[list[ProxyConfigZone], list[ProxyConfigZone]]:
+        """
+        Returns the config entries that can govern the given zone name.
+
+        The first list contains named entries in precedence order (exact name
+        first, then matches in list order). The second list contains
+        attribute-only entries, which can only be selected once the upstream
+        zone attributes are known.
+        """
+        named: list[ProxyConfigZone] = []
+        exact = self._zones_lookup.get(zone)
+        if exact is not None:
+            named.append(exact)
+        for z in self.zones:
+            if not z.name or z is exact:
+                continue
+            if (
+                check_zones_equal(zone, z.name)
+                or (z.subzones and check_subzone(zone, z.name))
+                or (z.regex and check_zone_in_regex(zone, z.name))
+            ):
+                named.append(z)
+        return named, [z for z in self.zones if not z.name]
+
     @lru_cache(maxsize=10000)
     def get_zone_if_allowed(self, zone: str) -> ProxyConfigZone:
         """
@@ -144,9 +174,8 @@ class ProxyConfigEnvironment(BaseModel):
             return self._zones_lookup[zone]
 
         for z in self.zones:
-            if not z.name and (z.kind or z.account or z.catalog):
-                logger.debug(f'"{zone}" matches an attribute-only zone entry')
-                return z
+            if not z.name:
+                continue
 
             if check_zones_equal(zone, z.name):
                 return z
@@ -157,6 +186,11 @@ class ProxyConfigEnvironment(BaseModel):
 
             if z.regex and check_zone_in_regex(zone, z.name):
                 logger.debug(f'"{zone}" matches regex "{z.name}"')
+                return z
+
+        for z in self.zones:
+            if not z.name and (z.kind or z.account or z.catalog):
+                logger.debug(f'"{zone}" matches an attribute-only zone entry')
                 return z
 
         raise ZoneNotAllowedException()

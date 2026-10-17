@@ -21,6 +21,7 @@ from powerdns_api_proxy.config import (
     ensure_rrsets_request_allowed,
     get_environment_for_token,
     get_only_pdns_zones_allowed,
+    select_matching_zone_entry,
     token_defined,
 )
 from powerdns_api_proxy.models import (
@@ -218,6 +219,29 @@ def test_attr_only_zone_with_records_raises():
 def test_attr_only_zone_with_subzones_raises():
     with pytest.raises(ValidationError):
         ProxyConfigZone(kind="Master", subzones=True)
+
+
+def test_named_entry_wins_over_attribute_only_regardless_of_order():
+    attr_zone = ProxyConfigZone(kind="Master")
+    regex_zone = ProxyConfigZone(name=".*\\.example.com", regex=True)
+    for zones in ([attr_zone, regex_zone], [regex_zone, attr_zone]):
+        env = ProxyConfigEnvironment(
+            name="Precedence",
+            token_sha512=dummy_proxy_environment_token_sha512,
+            zones=zones,
+        )
+        assert env.get_zone_if_allowed("master.example.com.") is regex_zone
+
+
+def test_attribute_only_matches_when_no_named_entry_matches():
+    regex_zone = ProxyConfigZone(name=".*\\.other.com", regex=True)
+    attr_zone = ProxyConfigZone(kind="Master")
+    env = ProxyConfigEnvironment(
+        name="Attribute Fallback",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[regex_zone, attr_zone],
+    )
+    assert env.get_zone_if_allowed("master.example.com.") is attr_zone
 
 
 def test_get_only_pdns_zones_allowed_glboal_read_only():
@@ -992,3 +1016,42 @@ def test_writable_zone_allows_admin_and_cryptokeys():
     assert zone.admin is True
     assert zone.cryptokeys is True
     assert zone.read_only is False
+
+
+def test_select_matching_zone_entry_uses_later_attribute_only_entry():
+    master = ProxyConfigZone(kind="Master")
+    public = ProxyConfigZone(account="public", admin=True)
+    pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
+    selected = select_matching_zone_entry([], [master, public], pdns_zone)
+    assert selected is public
+
+
+def test_select_matching_zone_entry_named_mismatch_does_not_fall_back():
+    named = ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Master")
+    wildcard = ProxyConfigZone(account="public")
+    pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
+    assert select_matching_zone_entry([named], [wildcard], pdns_zone) is None
+
+
+def test_select_matching_zone_entry_named_entry_wins_over_attribute_only():
+    named = ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Slave")
+    wildcard = ProxyConfigZone(account="public")
+    pdns_zone = {"name": "slave.example.com.", "kind": "Slave", "account": "public"}
+    assert select_matching_zone_entry([named], [wildcard], pdns_zone) is named
+
+
+def test_get_only_pdns_zones_allowed_uses_matching_attribute_only_entry():
+    pdns_zones = [
+        {"name": "master.example.com.", "kind": "Master", "account": "other"},
+        {"name": "public.example.com.", "kind": "Slave", "account": "public"},
+    ]
+    env = ProxyConfigEnvironment(
+        name="Multiple Attribute Entries",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[ProxyConfigZone(kind="Master"), ProxyConfigZone(account="public")],
+    )
+    allowed = get_only_pdns_zones_allowed(env, pdns_zones)
+    assert [z["name"] for z in allowed] == [
+        "master.example.com.",
+        "public.example.com.",
+    ]

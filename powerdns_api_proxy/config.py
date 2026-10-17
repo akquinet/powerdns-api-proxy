@@ -2,7 +2,7 @@ import hashlib
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -116,35 +116,48 @@ def get_only_pdns_zones_allowed(
         return pdns_zones
 
     for zone in pdns_zones:
-        if not check_pdns_zone_allowed(environment, zone["name"]):
+        named, attr_only = environment.get_zone_candidates(zone["name"])
+        if not named and not attr_only:
             continue
-        try:
-            env_zone = environment.get_zone_if_allowed(zone["name"])
-        except ZoneNotAllowedException:
-            continue
-        if check_pdns_zone_attrs_allowed(env_zone, zone):
+        if select_matching_zone_entry(named, attr_only, zone) is not None:
             filtered.append(zone)
     return filtered
 
 
-def check_pdns_zone_attrs_allowed(zone: ProxyConfigZone, pdns_zone: dict) -> bool:
+def check_pdns_zone_attrs_allowed(
+    zone: ProxyConfigZone, pdns_zone: dict[str, Any]
+) -> bool:
     """Returns True if the upstream zone matches the configured kind/account/catalog"""
     if zone.kind and pdns_zone.get("kind", "").lower() != zone.kind.lower():
-        logger.debug(
-            f'Zone kind "{pdns_zone.get("kind", "")}" does not match "{zone.kind}"'
-        )
         return False
     if zone.account and pdns_zone.get("account", "") != zone.account:
-        logger.debug(
-            f'Zone account "{pdns_zone.get("account", "")}" does not match "{zone.account}"'
-        )
         return False
     if zone.catalog and pdns_zone.get("catalog", "") != zone.catalog:
-        logger.debug(
-            f'Zone catalog "{pdns_zone.get("catalog", "")}" does not match "{zone.catalog}"'
-        )
         return False
     return True
+
+
+def select_matching_zone_entry(
+    named: list[ProxyConfigZone],
+    attr_only: list[ProxyConfigZone],
+    pdns_zone: dict[str, Any],
+) -> ProxyConfigZone | None:
+    """Returns the first entry whose attributes match, or None if none does.
+
+    Named entries that match the zone name take precedence. If at least one
+    such entry exists, the zone is denied when none of them matches its
+    attributes; attribute-only entries are not consulted afterwards, because an
+    explicit entry must not be overridden by a wildcard.
+    """
+    for zone in named:
+        if check_pdns_zone_attrs_allowed(zone, pdns_zone):
+            return zone
+    if named:
+        return None
+    for zone in attr_only:
+        if check_pdns_zone_attrs_allowed(zone, pdns_zone):
+            return zone
+    return None
 
 
 def check_pdns_zone_allowed(environment: ProxyConfigEnvironment, zone: str) -> bool:
