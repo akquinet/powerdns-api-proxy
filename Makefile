@@ -24,8 +24,10 @@ unit: ## run unit tests
 integration: ## run integration tests
 	uv run pytest -vvl --setup-show -vvl tests/integration/ --showlocals || test $$? -eq 5
 
+LISTEN_HOST ?= ::
+
 run: ## run project
-	uv run python -m powerdns_api_proxy --reload
+	LISTEN_HOST=$(LISTEN_HOST) uv run python -m powerdns_api_proxy --reload
 
 clean: ## clean cache and temp dirs
 	rm -rf ./.mypy_cache ./.pytest_cache
