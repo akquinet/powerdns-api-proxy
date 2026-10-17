@@ -33,6 +33,13 @@ jobs:
       - name: Setup
         run: make setup
 
+      # Keep this version in sync with the hadolint rev in .pre-commit-config.yaml
+      - name: Install hadolint
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/hadolint \
+            https://github.com/hadolint/hadolint/releases/download/v2.12.1-beta/hadolint-Linux-x86_64
+          sudo chmod +x /usr/local/bin/hadolint
+
       - name: Run linters
         run: make lint
   container:
