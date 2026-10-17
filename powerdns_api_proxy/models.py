@@ -3,13 +3,13 @@ from typing import TypedDict
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from powerdns_api_proxy.exceptions import ZoneNotAllowedException
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.utils import (
     check_subzone,
     check_zone_in_regex,
     check_zones_equal,
 )
-from powerdns_api_proxy.exceptions import ZoneNotAllowedException
 
 
 class ProxyConfigServices(BaseModel):
@@ -138,6 +138,7 @@ class ProxyConfigEnvironment(BaseModel):
             + str(self.zones)
         )
 
+    @lru_cache(maxsize=10000)
     def get_zone_candidates(
         self, zone: str
     ) -> tuple[list[ProxyConfigZone], list[ProxyConfigZone]]:
@@ -167,7 +168,13 @@ class ProxyConfigEnvironment(BaseModel):
     @lru_cache(maxsize=10000)
     def get_zone_if_allowed(self, zone: str) -> ProxyConfigZone:
         """
-        Returns the zone config for the given zone name
+        Returns the zone config for the given zone name.
+
+        This is a name-only lookup (exact name, subzones, regex). It ignores
+        `kind`, `account` and `catalog`, so attribute-only entries never match
+        here and named entries match regardless of their attributes. Use
+        `get_zone_candidates` together with `select_matching_zone_entry` for
+        attribute-aware checks.
         Raises ZoneNotAllowedException if the zone is not allowed
         """
         if zone in self._zones_lookup:
@@ -186,11 +193,6 @@ class ProxyConfigEnvironment(BaseModel):
 
             if z.regex and check_zone_in_regex(zone, z.name):
                 logger.debug(f'"{zone}" matches regex "{z.name}"')
-                return z
-
-        for z in self.zones:
-            if not z.name and (z.kind or z.account or z.catalog):
-                logger.debug(f'"{zone}" matches an attribute-only zone entry')
                 return z
 
         raise ZoneNotAllowedException()

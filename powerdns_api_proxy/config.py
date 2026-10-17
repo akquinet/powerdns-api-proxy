@@ -132,7 +132,9 @@ def check_pdns_zone_attrs_allowed(
         return False
     if zone.account and pdns_zone.get("account", "") != zone.account:
         return False
-    if zone.catalog and pdns_zone.get("catalog", "") != zone.catalog:
+    if zone.catalog and not check_zones_equal(
+        pdns_zone.get("catalog") or "", zone.catalog
+    ):
         return False
     return True
 
@@ -185,15 +187,6 @@ def check_pdns_zone_admin(environment: ProxyConfigEnvironment, zone: str) -> boo
     return False
 
 
-def check_pdns_zone_writable(environment: ProxyConfigEnvironment, zone: str) -> bool:
-    """Returns True if writes to the zone are allowed in the environment"""
-    try:
-        env_zone = environment.get_zone_if_allowed(zone)
-    except ZoneNotAllowedException:
-        return False
-    return not env_zone.read_only
-
-
 def check_pdns_search_allowed(
     environment: ProxyConfigEnvironment, query: str, object_type: str
 ) -> bool:
@@ -244,20 +237,6 @@ def check_acme_record_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
         if check_zones_equal(f"_acme-challenge.{record}", rrset["name"]):
             logger.info(f"ACME challenge for record {record} is allowed")
             return True
-
-    return False
-
-
-def check_pdns_cryptokeys_allowed(
-    environment: ProxyConfigEnvironment, zone: str
-) -> bool:
-    if environment.global_cryptokeys:
-        return True
-
-    try:
-        return environment.get_zone_if_allowed(zone).cryptokeys
-    except ZoneNotAllowedException:
-        pass
 
     return False
 

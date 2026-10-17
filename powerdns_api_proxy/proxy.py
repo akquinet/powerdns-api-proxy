@@ -8,6 +8,7 @@ from fastapi import (
     Depends,
     FastAPI,
     Header,
+    HTTPException,
     Request,
     Response,
 )
@@ -16,10 +17,10 @@ from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from powerdns_api_proxy.config import (
-    check_pdns_search_allowed,
-    check_pdns_tsigkeys_allowed,
     check_pdns_config_allowed,
+    check_pdns_search_allowed,
     check_pdns_statistics_allowed,
+    check_pdns_tsigkeys_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
     dependency_check_token_defined,
@@ -35,15 +36,15 @@ from powerdns_api_proxy.exceptions import (
     RessourceNotAllowedException,
     SearchNotAllowedException,
     ServerNotFoundException,
+    UpstreamException,
     ZoneAdminNotAllowedException,
     ZoneNotAllowedException,
     ZoneNotConfiguredException,
     ZoneReadOnlyException,
-    UpstreamException,
 )
 from powerdns_api_proxy.logging import logger
-from powerdns_api_proxy.middleware import AuditMiddleware
 from powerdns_api_proxy.metrics import http_requests_total_environment
+from powerdns_api_proxy.middleware import AuditMiddleware
 from powerdns_api_proxy.models import (
     ProxyConfigEnvironment,
     ProxyConfigZone,
@@ -155,25 +156,18 @@ router_pdns = APIRouter(
 )
 
 
-async def enforce_zone_attr_filters(
+async def resolve_zone_entry(
     environment: ProxyConfigEnvironment, server_id: str, zone_id: str
-) -> ProxyConfigZone:
-    """Resolve and enforce the zone entry for a single zone.
+) -> ProxyConfigZone | None:
+    """Resolve the zone entry that governs a single zone, or None.
 
-    Returns the selected zone entry. Entries that match by name are preferred.
-    Attribute filters require the upstream zone, so it is fetched once when the
-    first matching entry carries a filter or when no named entry matches.
-    Raises ZoneNotAllowedException when no entry matches the upstream
-    attributes, and ZoneNotConfiguredException when no entry matches the name.
-    global_read_only environments may still expose an unconfigured zone for
-    reading; callers decide whether that is acceptable.
+    Returns None when no candidate matches, so callers decide how to treat an
+    unmatched zone. Raises ZoneNotConfiguredException when no entry matches the
+    name at all. Errors from the upstream lookup (for example a 404 for an
+    unknown zone) are propagated.
     """
     named, attr_only = environment.get_zone_candidates(zone_id)
     if not named and not attr_only:
-        if not environment.global_read_only:
-            logger.info(
-                f"Zone {zone_id} not allowed for environment {environment.name}"
-            )
         raise ZoneNotConfiguredException()
     if named and not named[0].has_attribute_filter:
         return named[0]
@@ -186,7 +180,23 @@ async def enforce_zone_attr_filters(
     if not isinstance(pdns_response.data, dict):
         logger.error(f"We expected powerdns to return json: {pdns_response.data}")
         raise UpstreamException()
-    env_zone = select_matching_zone_entry(named, attr_only, pdns_response.data)
+    return select_matching_zone_entry(named, attr_only, pdns_response.data)
+
+
+async def enforce_zone_attr_filters(
+    environment: ProxyConfigEnvironment, server_id: str, zone_id: str
+) -> ProxyConfigZone:
+    """Resolve and enforce the zone entry for a single zone.
+
+    Returns the selected zone entry. Entries that match by name are preferred.
+    Attribute filters require the upstream zone, so it is fetched once when the
+    first matching entry carries a filter or when no named entry matches.
+    Raises ZoneNotAllowedException when no entry matches the upstream
+    attributes, and ZoneNotConfiguredException when no entry matches the name.
+    Reads in global_read_only environments skip this check entirely; callers
+    decide how to treat zones that resolve to None.
+    """
+    env_zone = await resolve_zone_entry(environment, server_id, zone_id)
     if env_zone is None:
         logger.info(
             f"Zone {zone_id} attributes not allowed for environment {environment.name}"
@@ -263,14 +273,33 @@ async def get_zone_allowed(zone: str, X_API_Key: str = Header()):
     """
     Check if the given zone is allowed for the given token.
     Also returns the zone config that allows the zone.
+
+    In global_read_only environments every zone is readable, so the answer is
+    based on configuration only. Otherwise, when the matching entry filters by
+    `kind`, `account` or `catalog`, the zone is fetched from PowerDNS to check
+    those attributes.
     """
     logger.debug("Checking if zone is allowed for given api key")
     environment = get_environment_for_token(config, X_API_Key)
-    if not check_pdns_zone_allowed(environment, zone):
+    if environment.global_read_only:
+        named, attr_only = environment.get_zone_candidates(zone)
+        zone_config = None
+        if named:
+            zone_config = named[0]
+        elif attr_only:
+            zone_config = attr_only[0]
+        return ResponseZoneAllowed(zone=zone, allowed=True, config=zone_config)
+    try:
+        zone_config = await resolve_zone_entry(environment, "localhost", zone)
+    except ZoneNotConfiguredException:
         return ResponseZoneAllowed(zone=zone, allowed=False)
-
-    zone_config = environment.get_zone_if_allowed(zone)
-    return ResponseZoneAllowed(zone=zone, allowed=True, config=zone_config)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        return ResponseZoneAllowed(zone=zone, allowed=False)
+    return ResponseZoneAllowed(
+        zone=zone, allowed=zone_config is not None, config=zone_config
+    )
 
 
 @app.get("/api", dependencies=[Depends(dependency_check_token_defined)])
@@ -440,11 +469,8 @@ async def get_zone_metadata(
     <https://doc.powerdns.com/authoritative/http-api/zone.html#get--servers-server_id-zones-zone_id>
     """
     environment = get_environment_for_token(config, X_API_Key)
-    try:
+    if not environment.global_read_only:
         await enforce_zone_attr_filters(environment, server_id, zone_id)
-    except ZoneNotConfiguredException:
-        if not environment.global_read_only:
-            raise
     resp = await pdns.get(
         f"/api/v1/servers/{server_id}/zones/{zone_id}",
         params=dict(request.query_params),

@@ -7,15 +7,13 @@ from pydantic import ValidationError
 
 from powerdns_api_proxy.config import (
     check_acme_record_allowed,
-    check_pdns_search_allowed,
-    check_pdns_cryptokeys_allowed,
-    check_pdns_tsigkeys_allowed,
     check_pdns_config_allowed,
+    check_pdns_search_allowed,
     check_pdns_statistics_allowed,
+    check_pdns_tsigkeys_allowed,
     check_pdns_zone_admin,
     check_pdns_zone_allowed,
     check_pdns_zone_attrs_allowed,
-    check_pdns_zone_writable,
     check_rrset_allowed,
     check_token_defined,
     ensure_rrsets_request_allowed,
@@ -23,6 +21,10 @@ from powerdns_api_proxy.config import (
     get_only_pdns_zones_allowed,
     select_matching_zone_entry,
     token_defined,
+)
+from powerdns_api_proxy.exceptions import (
+    NotAuthorizedException,
+    ZoneNotAllowedException,
 )
 from powerdns_api_proxy.models import (
     RRSET,
@@ -32,18 +34,14 @@ from powerdns_api_proxy.models import (
     ProxyConfigZone,
     RRSETRequest,
 )
-from powerdns_api_proxy.exceptions import (
-    NotAuthorizedException,
-    ZoneNotAllowedException,
-)
 
 os.environ["PROXY_CONFIG_PATH"] = "./config-example.yml"
 
 dummy_proxy_zone = ProxyConfigZone(name="test.example.com.")
 dummy_proxy_environment_token = "lashflkashlfgkashglashglashgl"
-dummy_proxy_environment_token_sha512 = "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"  # noqa: E501
+dummy_proxy_environment_token_sha512 = "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"
 dummy_proxy_environment_token2 = "aslkghlskdhglkwhegklwhelghwleghwle"
-dummy_proxy_environment_token2_sha512 = "1954a12ef0bf45b3a1797437509037f178af846d880115d57668a8aaa05732deedcbbd02bfa296b4f4e043b437b733fd6131933cfdc0fb50c4cf7f9f2bdaa836"  # noqa: E501
+dummy_proxy_environment_token2_sha512 = "1954a12ef0bf45b3a1797437509037f178af846d880115d57668a8aaa05732deedcbbd02bfa296b4f4e043b437b733fd6131933cfdc0fb50c4cf7f9f2bdaa836"
 
 dummy_proxy_environment = ProxyConfigEnvironment(
     name="Test 1",
@@ -121,13 +119,13 @@ def test_get_only_pdns_zones_allowed_by_account_and_catalog():
             "name": "public.example.com.",
             "kind": "Slave",
             "account": "public",
-            "catalog": "default-catalog.invalid",
+            "catalog": "default-catalog.invalid.",
         },
         {
             "name": "other.example.com.",
             "kind": "Slave",
             "account": "other",
-            "catalog": "default-catalog.invalid",
+            "catalog": "default-catalog.invalid.",
         },
     ]
     env = ProxyConfigEnvironment(
@@ -168,28 +166,38 @@ def test_check_pdns_zone_attrs_allowed_account_mismatch():
     )
 
 
+def test_check_pdns_zone_attrs_allowed_catalog_ignores_trailing_dot():
+    zone = ProxyConfigZone(name="example.com.", catalog="default-catalog.invalid")
+    assert check_pdns_zone_attrs_allowed(zone, {"catalog": "default-catalog.invalid."})
+    dotted = ProxyConfigZone(name="example.com.", catalog="default-catalog.invalid.")
+    assert check_pdns_zone_attrs_allowed(dotted, {"catalog": "default-catalog.invalid"})
+
+
 def test_check_pdns_zone_attrs_allowed_catalog_missing_upstream():
     zone = ProxyConfigZone(name="example.com.", catalog="default-catalog.invalid")
     assert not check_pdns_zone_attrs_allowed(zone, {"kind": "Master"})
 
 
-def test_attribute_only_zone_matches_any_name():
+def test_attribute_only_zone_never_matches_by_name():
     env = ProxyConfigEnvironment(
         name="Test Attribute Only",
         token_sha512=dummy_proxy_environment_token_sha512,
         zones=[ProxyConfigZone(kind="Master")],
     )
-    assert check_pdns_zone_allowed(env, "anything.example.com.")
-    assert env.get_zone_if_allowed("anything.example.com.").kind == "Master"
+    assert not check_pdns_zone_allowed(env, "anything.example.com.")
+    assert not check_pdns_zone_admin(env, "anything.example.com.")
+    with pytest.raises(ZoneNotAllowedException):
+        env.get_zone_if_allowed("anything.example.com.")
 
 
-def test_attribute_only_zone_admin_applies():
+def test_attribute_only_zone_admin_does_not_grant_creation():
     env = ProxyConfigEnvironment(
         name="Test Attribute Only Admin",
         token_sha512=dummy_proxy_environment_token_sha512,
         zones=[ProxyConfigZone(kind="Master", admin=True)],
     )
-    assert check_pdns_zone_admin(env, "anything.example.com.")
+    assert not check_pdns_zone_allowed(env, "anything.example.com.")
+    assert not check_pdns_zone_admin(env, "anything.example.com.")
 
 
 def test_get_only_pdns_zones_allowed_attribute_only():
@@ -230,10 +238,11 @@ def test_named_entry_wins_over_attribute_only_regardless_of_order():
             token_sha512=dummy_proxy_environment_token_sha512,
             zones=zones,
         )
-        assert env.get_zone_if_allowed("master.example.com.") is regex_zone
+        named, _ = env.get_zone_candidates("master.example.com.")
+        assert named[0] is regex_zone
 
 
-def test_attribute_only_matches_when_no_named_entry_matches():
+def test_attribute_only_candidates_when_no_named_entry_matches():
     regex_zone = ProxyConfigZone(name=".*\\.other.com", regex=True)
     attr_zone = ProxyConfigZone(kind="Master")
     env = ProxyConfigEnvironment(
@@ -241,7 +250,9 @@ def test_attribute_only_matches_when_no_named_entry_matches():
         token_sha512=dummy_proxy_environment_token_sha512,
         zones=[regex_zone, attr_zone],
     )
-    assert env.get_zone_if_allowed("master.example.com.") is attr_zone
+    named, attr_only = env.get_zone_candidates("master.example.com.")
+    assert named == []
+    assert attr_only == [attr_zone]
 
 
 def test_get_only_pdns_zones_allowed_glboal_read_only():
@@ -322,56 +333,6 @@ def test_check_pdns_zone_admin_true_subzone():
     assert check_pdns_zone_admin(env, "blablubTest24." + env.zones[0].name)
 
 
-def test_check_pdns_zone_writable():
-    zone = ProxyConfigZone(name="writable.example.com.")
-    env = ProxyConfigEnvironment(
-        name="Test Writable",
-        token_sha512=dummy_proxy_environment_token_sha512,
-        zones=[zone],
-    )
-    assert check_pdns_zone_writable(env, zone.name)
-
-
-def test_check_pdns_zone_writable_read_only_zone():
-    zone = ProxyConfigZone(name="readonly.example.com.", read_only=True)
-    env = ProxyConfigEnvironment(
-        name="Test Read Only Zone",
-        token_sha512=dummy_proxy_environment_token_sha512,
-        zones=[zone],
-    )
-    assert not check_pdns_zone_writable(env, zone.name)
-
-
-def test_check_pdns_zone_writable_global_read_only_listed_zone():
-    zone = ProxyConfigZone(name="writable.example.com.", read_only=False)
-    env = ProxyConfigEnvironment(
-        name="Test Global Read Only",
-        token_sha512=dummy_proxy_environment_token_sha512,
-        zones=[zone],
-        global_read_only=True,
-    )
-    assert check_pdns_zone_writable(env, zone.name)
-
-
-def test_check_pdns_zone_writable_global_read_only_unlisted_zone():
-    env = ProxyConfigEnvironment(
-        name="Test Global Read Only",
-        token_sha512=dummy_proxy_environment_token_sha512,
-        zones=[],
-        global_read_only=True,
-    )
-    assert not check_pdns_zone_writable(env, "other.example.com.")
-
-
-def test_check_pdns_zone_writable_not_allowed():
-    env = ProxyConfigEnvironment(
-        name="Test Not Allowed",
-        token_sha512=dummy_proxy_environment_token_sha512,
-        zones=[],
-    )
-    assert not check_pdns_zone_writable(env, "other.example.com.")
-
-
 def test_get_zone_config():
     env = dummy_proxy_environment
     zone = env.get_zone_if_allowed(dummy_proxy_zone.name)
@@ -421,7 +382,7 @@ def test_get_zone_config_no_subzone():
 
 def test_check_pdns_zone_allowed_allowed_without_trailing_point():
     env = dummy_proxy_environment
-    zone = dummy_proxy_zone.name[0 : len(dummy_proxy_zone.name) - 1]  # noqa: E203
+    zone = dummy_proxy_zone.name[0 : len(dummy_proxy_zone.name) - 1]
     print(zone)
     assert check_pdns_zone_allowed(env, zone)
 
@@ -868,26 +829,6 @@ def test_search_allowed_globally():
     assert check_pdns_search_allowed(environment, "test", "all") is True
 
 
-def test_cryptokeys_not_allowed():
-    environment = dummy_proxy_environment
-    assert check_pdns_cryptokeys_allowed(environment, "test") is False
-    assert check_pdns_cryptokeys_allowed(environment, "test.example.com.") is False
-
-
-def test_cryptokeys_allowed_zone_only():
-    environment = deepcopy(dummy_proxy_environment)
-    environment.zones[0].cryptokeys = True
-    assert check_pdns_cryptokeys_allowed(environment, "test") is False
-    assert check_pdns_cryptokeys_allowed(environment, "test.example.com.") is True
-
-
-def test_cryptokeys_allowed_global():
-    environment = deepcopy(dummy_proxy_environment)
-    environment.global_cryptokeys = True
-    assert check_pdns_cryptokeys_allowed(environment, "test") is True
-    assert check_pdns_cryptokeys_allowed(environment, "test.example.com.") is True
-
-
 def test_tsigkeys_not_allowed():
     environment = deepcopy(dummy_proxy_environment)
     environment.global_tsigkeys = False
@@ -1055,3 +996,18 @@ def test_get_only_pdns_zones_allowed_uses_matching_attribute_only_entry():
         "master.example.com.",
         "public.example.com.",
     ]
+
+
+def test_get_only_pdns_zones_allowed_named_mismatch_does_not_fall_back():
+    pdns_zones = [
+        {"name": "slave.example.com.", "kind": "Slave", "account": "public"},
+    ]
+    env = ProxyConfigEnvironment(
+        name="Named Mismatch Listing",
+        token_sha512=dummy_proxy_environment_token_sha512,
+        zones=[
+            ProxyConfigZone(name=".*\\.example.com", regex=True, kind="Master"),
+            ProxyConfigZone(account="public"),
+        ],
+    )
+    assert get_only_pdns_zones_allowed(env, pdns_zones) == []

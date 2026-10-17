@@ -156,8 +156,8 @@ Additional zone options:
 
 A zone can additionally be selected by the upstream zone attributes `kind`
 (`Master`, `Slave`, `Native`, `Producer`, `Consumer`), `account` and `catalog`.
-`kind` is compared case-insensitively, `account` and `catalog` must match
-exactly.
+`kind` is compared case-insensitively, `account` must match exactly, and
+`catalog` is compared like a zone name, ignoring an optional trailing dot.
 
 ```yaml
 environments:
@@ -196,8 +196,9 @@ name, then `subzones`, then `regex`), so an attribute-only entry only applies to
 zones that no named entry matches.
 
 The filter applies to the zone listing, to requests for a single zone and to a
-zone's `cryptokeys` endpoints. It cannot be applied when creating a zone, because
-the zone does not exist in PowerDNS yet.
+zone's `cryptokeys` endpoints. Creating a zone requires a matching entry with a
+name; attribute-only entries never grant creation, because the attributes of a
+zone that does not exist in PowerDNS yet cannot be checked.
 
 When several entries match a zone, the first one whose name and attributes match
 wins. Named entries are checked before attribute-only entries. If a named entry
@@ -206,10 +207,12 @@ attribute-only entries are not consulted, so an explicit entry always restricts
 its zone. Among attribute-only entries, the first one whose attributes match
 wins, which also determines the permissions that apply.
 
-In a `global_read_only` environment all zones stay readable, so attribute
-filters do not narrow the zone listing. Single-zone requests are still
-attribute-checked for zones that match a listed entry; zones that are not listed
-remain readable without an attribute check.
+In a `global_read_only` environment all zones stay readable: the zone listing is
+not filtered and `GET` for a single zone is forwarded without an attribute
+check. Attribute filters only constrain writes there; `PATCH`, `PUT`, `DELETE`,
+`notify` and `rectify` are still attribute-checked, and zones that are not
+listed stay read-only. Cryptokeys management always requires the `cryptokeys`
+permission and stays attribute-checked.
 
 ### ACME challenges
 
@@ -236,7 +239,10 @@ anyway.
 - Known token without permission: `403`
 - `GET /info/allowed` lists the zones a token may access;
   `GET /info/zone-allowed?zone=<zone>` checks a single zone and shows which
-  config entry grants access.
+  config entry grants access. When the matching entry filters by `kind`,
+  `account` or `catalog`, the zone is fetched from PowerDNS to verify those
+  attributes; in `global_read_only` environments every zone is reported as
+  readable.
 
 Error responses follow the PowerDNS format:
 
@@ -356,7 +362,7 @@ environments:
 | `cryptokeys` | `false` | Allow DNSSEC key management in the zone |
 | `kind` | `""` | Filter by upstream zone kind (`Master`, `Slave`, `Native`, `Producer`, `Consumer`); case-insensitive |
 | `account` | `""` | Filter by upstream zone account (exact match) |
-| `catalog` | `""` | Filter by upstream catalog zone (exact match) |
+| `catalog` | `""` | Filter by upstream catalog zone (trailing dot optional) |
 | `services.acme` | see above | Allow ACME challenge records |
 
 `all_records` is not configured directly: it is enabled automatically when a
