@@ -1,6 +1,6 @@
+import json
 import logging
 import logging.handlers
-import json
 from os import getenv
 from sys import stderr
 

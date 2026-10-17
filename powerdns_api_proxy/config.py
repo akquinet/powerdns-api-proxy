@@ -71,9 +71,7 @@ security = HTTPBasic()
 
 
 def dependency_metrics_proxy_enabled(
-    credentials: Annotated[HTTPBasicCredentials, Depends(security)] = Header(
-        description="API Key for the proxy."
-    ),
+    credentials: Annotated[HTTPBasicCredentials, Depends(security)],
 ):
     username = credentials.username
     password = credentials.password
@@ -135,9 +133,7 @@ def check_pdns_zone_admin(environment: ProxyConfigEnvironment, zone: str) -> boo
 def check_pdns_search_allowed(
     environment: ProxyConfigEnvironment, query: str, object_type: str
 ) -> bool:
-    if environment.global_search:
-        return True
-    return False
+    return bool(environment.global_search)
 
 
 def check_rrset_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
@@ -163,10 +159,7 @@ def check_rrset_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
         if check_record_in_regex(rrset["name"], regex):
             return True
 
-    if check_acme_record_allowed(zone, rrset):
-        return True
-
-    return False
+    return bool(check_acme_record_allowed(zone, rrset))
 
 
 def check_acme_record_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
@@ -187,9 +180,7 @@ def check_acme_record_allowed(zone: ProxyConfigZone, rrset: RRSET) -> bool:
 
 
 def check_pdns_tsigkeys_allowed(environment: ProxyConfigEnvironment) -> bool:
-    if environment.global_tsigkeys:
-        return True
-    return False
+    return bool(environment.global_tsigkeys)
 
 
 def check_pdns_config_allowed(environment: ProxyConfigEnvironment) -> bool:

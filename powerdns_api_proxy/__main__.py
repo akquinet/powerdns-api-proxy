@@ -1,6 +1,8 @@
 import os
 import sys
+
 import uvicorn
+
 from powerdns_api_proxy.uvicorn_config import LOGGING_CONFIG
 
 

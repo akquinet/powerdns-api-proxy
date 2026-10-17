@@ -14,12 +14,12 @@ from powerdns_api_proxy.pdns import PDNSResponse
 
 os.environ["PROXY_CONFIG_PATH"] = "./config-example.yml"
 
-from powerdns_api_proxy.proxy import app  # noqa: E402
+from powerdns_api_proxy.proxy import app
 
 client = TestClient(app)
 
 api_key = "lashflkashlfgkashglashglashgl"
-api_key_sha512 = "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"  # noqa: E501
+api_key_sha512 = "127aab81f4caab9c00e72f26e4c5c4b20146201a1548a787494d999febf1b9422c1711932117f38d9be9efe46f78aa72d8f6a391101bedd6e200014f6738450d"
 
 environment = ProxyConfigEnvironment(
     name="subzones",

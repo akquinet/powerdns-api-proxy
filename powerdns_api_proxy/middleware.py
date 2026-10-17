@@ -28,8 +28,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
             if token:
                 environment = get_environment_for_token(_config, token)
                 environment_name = environment.name
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001  # audit logging must never fail a request
+            logger.debug("Could not resolve environment for audit logging")
 
         # Store request body for logging (only for write operations)
         payload = None
@@ -39,8 +39,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 body_bytes = await request.body()
                 if body_bytes:
                     payload = json.loads(body_bytes)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001  # audit logging must never fail a request
+                logger.debug("Could not read request body for audit logging")
 
         query_params = dict(request.query_params) if request.query_params else None
 
