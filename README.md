@@ -636,3 +636,8 @@ changes in an issue first, and make sure `make test` passes.
 
 Parts of this application's source code were created with assistance from an AI
 coding assistant and reviewed by human contributors.
+
+## Trademarks
+
+Independent community project, not affiliated with or endorsed by Open-Xchange
+AG or the PowerDNS project. PowerDNS is a trademark of Open-Xchange AG.
