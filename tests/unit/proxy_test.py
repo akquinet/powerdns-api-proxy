@@ -145,7 +145,8 @@ def _wrong_token_request(client: TestClient, method: str, path: str):
 def _token_missing_request(client: TestClient, method: str, path: str):
     answer = client.request(method, path)
     print(answer.json())
-    assert answer.status_code == 422
+    assert answer.status_code == 401
+    assert answer.json()["error"] == NotAuthorizedException().detail
 
 
 get_routes = [

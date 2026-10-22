@@ -234,8 +234,7 @@ anyway.
 
 ### Authorization and errors
 
-- Missing `X-API-Key` header: `422` (rejected by request validation)
-- Unknown token: `401`
+- Missing or unknown `X-API-Key` token: `401`
 - Known token without permission: `403`
 - `GET /info/allowed` lists the zones a token may access;
   `GET /info/zone-allowed?zone=<zone>` checks a single zone and shows which
