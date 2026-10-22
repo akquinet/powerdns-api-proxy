@@ -2,7 +2,10 @@ import asyncio
 import logging
 from unittest.mock import patch
 
-from powerdns_api_proxy.pdns import PDNSConnector
+import pytest
+
+from powerdns_api_proxy.exceptions import UpstreamException
+from powerdns_api_proxy.pdns import PDNSConnector, PDNSResponse
 
 
 class _AsyncContextManager:
@@ -30,8 +33,10 @@ class _FakeResponse:
 class _FakeSession:
     def __init__(self, response: _FakeResponse):
         self._response = response
+        self.request_kwargs: dict = {}
 
     def request(self, *args, **kwargs):
+        self.request_kwargs = kwargs
         return _AsyncContextManager(self._response)
 
 
@@ -91,3 +96,22 @@ def test_zone_named_like_sensitive_endpoint_is_still_logged(caplog):
         )
     assert "test.tsigkeys.example.com." in caplog.text
     assert "<redacted>" not in caplog.text
+
+
+def test_upstream_requests_do_not_follow_redirects():
+    """aiohttp forwards custom headers to the redirect target, so following a
+    redirect would hand the upstream X-API-Key to that location."""
+    connector = PDNSConnector("http://pdns.example", "upstream-token")
+    session = _FakeSession(_FakeResponse("[]"))
+    with patch(
+        "powerdns_api_proxy.pdns.aiohttp.ClientSession",
+        return_value=_AsyncContextManager(session),
+    ):
+        asyncio.run(connector.get("/api/v1/servers"))
+    assert session.request_kwargs["allow_redirects"] is False
+
+
+def test_upstream_redirect_is_reported_as_upstream_error():
+    """A 3xx must not be treated as a successful upstream answer."""
+    with pytest.raises(UpstreamException):
+        PDNSResponse("", 302).raise_for_error()

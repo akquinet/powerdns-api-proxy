@@ -37,6 +37,12 @@ class PDNSResponse:
         if self.is_success:
             return self.status_code
 
+        # Redirects are never followed (see PDNSConnector.request), so a 3xx
+        # means the upstream is misconfigured or has been tampered with.
+        if 300 <= self.status_code < 400:
+            logger.error(f"PowerDNS upstream returned a redirect ({self.status_code})")
+            raise UpstreamException("Upstream PowerDNS API returned a redirect")
+
         # Forward common status codes directly
         if self.status_code in (400, 404, 409, 422):
             error_msg = (
@@ -118,6 +124,10 @@ class PDNSConnector:
                 params=params,
                 json=payload,
                 verify_ssl=self.verify_ssl,  # type: ignore[call-arg]
+                # Never follow redirects: aiohttp re-sends custom headers such
+                # as X-API-Key to the redirect target, which would hand the
+                # upstream API token to whoever controls that location.
+                allow_redirects=False,
             ) as req,
         ):
             text = await req.text()
