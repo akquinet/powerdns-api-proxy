@@ -62,8 +62,10 @@ def check_token_defined(config: ProxyConfig, token: str):
 
 
 def dependency_check_token_defined(
-    X_API_Key: str = Header(description="API Key for the proxy."),
+    X_API_Key: str | None = Header(default=None, description="API Key for the proxy."),
 ):
+    if X_API_Key is None:
+        raise NotAuthorizedException()
     check_token_defined(load_config(), X_API_Key)
 
 
