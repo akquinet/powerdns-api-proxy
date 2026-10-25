@@ -15,6 +15,7 @@ example, can get write access to nothing but `_acme-challenge` records.
 - Optional access to subzones and regex-matched zones
 - Server-wide permissions for search, config, statistics, TSIG keys and DNSSEC keys
 - Prometheus metrics, audit logging and optional Sentry integration
+- Rate limiting of failed token authentications per client IP
 - Compatible with the PowerDNS API v1 (`X-API-Key` header, `{"error": ...}` responses)
 
 ## Quick start
@@ -379,6 +380,9 @@ zone lists neither `records` nor `regex_records`.
 | `LISTEN_PORT` | `8000` | Port to listen on |
 | `AUDIT_LOGGING` | `true` | Set to `false` to disable audit logging |
 | `AUDIT_LOG_CLIENT_IP` | `false` | Set to `true` to include client IPs in audit logs |
+| `RATE_LIMIT_ENABLED` | `true` | Enable rate limiting of failed token authentications |
+| `RATE_LIMIT_AUTH_FAILURES` | `20` | Failed authentications allowed per client IP and window |
+| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Length of the fixed rate limit window in seconds |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Peers trusted to set `X-Forwarded-For` |
 | `SENTRY_DSN` | unset | Enables Sentry error reporting when set |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Sentry trace sample rate (only used with `SENTRY_DSN`) |
@@ -391,10 +395,29 @@ zone lists neither `records` nor `regex_records`.
 The proxy exposes Prometheus metrics on `/metrics` using
 [prometheus-fastapi-instrumentator](https://github.com/trallnag/prometheus-fastapi-instrumentator).
 In addition to the default metrics, `http_requests_environment` counts requests
-by environment, method, status and handler.
+by environment, method, status and handler. `auth_failures_total` and
+`auth_rate_limited_total` count failed token authentications and blocked
+requests. Rate-limited `429` responses are not in the default HTTP metrics
+because the limiter runs first.
 
 Set `metrics_enabled: false` to disable the endpoint, and
 `metrics_require_auth: false` to drop the basic-auth requirement.
+
+### Failed authentication rate limiting
+
+Failed `X-API-Key` authentications are counted per client IP in a fixed window
+(default: 20 failures in 60 seconds). Once the budget is exhausted, the IP gets
+`429 Too Many Requests` with `Retry-After`, and token verification is skipped
+entirely. A successful authentication clears the counter. Requests without an
+`X-API-Key` are not counted, and valid tokens from a blocked IP are rejected
+too.
+
+The counter is keyed by client IP, so clients behind NAT or a shared egress
+address share one budget. State is in process memory: each worker keeps its own
+counter, and a restart clears it. The settings are listed under
+[Environment variables](#environment-variables); see
+[Running behind a reverse proxy](#running-behind-a-reverse-proxy) for how the
+client IP is determined.
 
 ### API documentation
 
@@ -439,6 +462,9 @@ structured data via middleware. This includes successful operations and
 forbidden attempts (`403`); requests without a valid token are logged with the
 environment name `UNAUTHENTICATED`. The `/api/v1/servers/localhost` prefix is
 stripped from the logged path.
+
+Rate-limited requests are logged with environment `RATE_LIMITED` and status
+`429`, honoring `AUDIT_LOGGING` and `AUDIT_LOG_CLIENT_IP`.
 
 Each audit log entry contains:
 

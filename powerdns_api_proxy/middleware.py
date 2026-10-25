@@ -2,14 +2,30 @@ import json
 import os
 
 from fastapi import Request, Response
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from powerdns_api_proxy.config import get_environment_for_token, load_config
 from powerdns_api_proxy.logging import logger
+from powerdns_api_proxy.metrics import AUTH_FAILURES_TOTAL, AUTH_RATE_LIMITED_TOTAL
+from powerdns_api_proxy.rate_limit import AuthFailureRateLimiter, RateLimitConfig
 
 _config = load_config()
 
 AUDIT_LOG_CLIENT_IP = os.getenv("AUDIT_LOG_CLIENT_IP", "false").lower() == "true"
+
+_rate_limiter = AuthFailureRateLimiter(RateLimitConfig.from_env())
+
+_PROTECTED_PATHS = ("/api", "/health/pdns")
+_PROTECTED_PREFIXES = ("/api/v1/", "/info/")
+
+
+def _audit_path(path: str) -> str:
+    return path.replace("/api/v1/servers/localhost", "")
+
+
+def _is_token_protected(path: str) -> bool:
+    return path in _PROTECTED_PATHS or path.startswith(_PROTECTED_PREFIXES)
 
 
 class AuditMiddleware(BaseHTTPMiddleware):
@@ -55,7 +71,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         else:
             client_ip = None
 
-        path = request.url.path.replace("/api/v1/servers/localhost", "")
+        path = _audit_path(request.url.path)
         status_code = 500
         try:
             # Call the actual endpoint
@@ -78,3 +94,64 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 query_params,
                 client_ip,
             )
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests from IPs with too many failed token authentications.
+
+    This middleware must be the outermost user middleware. Blocked requests then
+    skip the audit and metrics token lookups as well as every auth hash, and the
+    default HTTP instrumentator does not count the 429 responses it produces.
+    """
+
+    def __init__(
+        self,
+        app,
+        limiter: AuthFailureRateLimiter | None = None,
+    ):
+        super().__init__(app)
+        self.limiter = limiter if limiter is not None else _rate_limiter
+
+    async def dispatch(self, request: Request, call_next):
+        if not self.limiter.config.enabled or not _is_token_protected(request.url.path):
+            return await call_next(request)
+
+        key = request.client.host if request.client else "unknown"
+        retry_after = self.limiter.retry_after(key)
+        if retry_after is not None:
+            AUTH_RATE_LIMITED_TOTAL.inc()
+            self._audit_blocked(request)
+            return JSONResponse(
+                {"error": "Too many failed authentication attempts"},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        response = await call_next(request)
+
+        if getattr(request.state, "token_authenticated", False):
+            self.limiter.record_success(key)
+        elif response.status_code == 401 and request.headers.get("X-API-Key"):
+            AUTH_FAILURES_TOTAL.inc()
+            self.limiter.record_failure(key)
+
+        return response
+
+    @staticmethod
+    def _audit_blocked(request: Request) -> None:
+        if os.getenv("AUDIT_LOGGING", "true").lower() == "false":
+            return
+
+        if AUDIT_LOG_CLIENT_IP:
+            client_ip = request.client.host if request.client else "unknown"
+        else:
+            client_ip = None
+
+        logger.audit(
+            environment="RATE_LIMITED",
+            method=request.method,
+            path=_audit_path(request.url.path),
+            status_code=429,
+            query_params=dict(request.query_params) if request.query_params else None,
+            client_ip=client_ip,
+        )
