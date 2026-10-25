@@ -7,6 +7,15 @@ from powerdns_api_proxy.config import get_environment_for_token, load_config
 
 config = load_config()
 
+AUTH_FAILURES_TOTAL = Counter(
+    "auth_failures",
+    "Total number of failed token authentications.",
+)
+AUTH_RATE_LIMITED_TOTAL = Counter(
+    "auth_rate_limited",
+    "Total number of requests rejected by the failed authentication rate limiter.",
+)
+
 
 def http_requests_total_environment(
     metric_namespace: str = "",

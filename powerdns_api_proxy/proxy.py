@@ -42,7 +42,7 @@ from powerdns_api_proxy.exceptions import (
 )
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.metrics import http_requests_total_environment
-from powerdns_api_proxy.middleware import AuditMiddleware
+from powerdns_api_proxy.middleware import AuditMiddleware, RateLimitMiddleware
 from powerdns_api_proxy.models import (
     ProxyConfigEnvironment,
     ProxyConfigZone,
@@ -109,6 +109,12 @@ if config.metrics_enabled:
         instrumentator.expose(app)
 else:
     logger.info("Metrics are disabled")
+
+# Starlette treats the last added middleware as the outermost one. Adding the
+# rate limiter here, after the metrics instrumentation and AuditMiddleware,
+# makes it run first so blocked requests never reach token verification, the
+# audit token lookup, or the HTTP instrumentator.
+app.add_middleware(RateLimitMiddleware)
 
 
 # Patching HTTPException to be compatible with PowerDNS API errors
