@@ -1,10 +1,50 @@
 import json
 import logging
+import os
+import subprocess
+import sys
 from io import StringIO
+from pathlib import Path
 
 import pytest
 
 from powerdns_api_proxy.logging import AuditLogger, JSONFormatter
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+LOGGING_PROBE = """
+import powerdns_api_proxy.logging as proxy_logging
+
+proxy_logging.logger.info("file logging probe")
+"""
+
+
+def _run_logging_probe(cwd: Path, log_file: Path | None = None) -> None:
+    """Import the logging module in a clean process and emit one record."""
+    env = os.environ.copy()
+    env.pop("LOG_FILE", None)
+    env["LOG_LEVEL"] = "INFO"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        f"{PROJECT_ROOT}{os.pathsep}{existing_pythonpath}"
+        if existing_pythonpath
+        else str(PROJECT_ROOT)
+    )
+
+    if log_file is not None:
+        env["LOG_FILE"] = str(log_file)
+
+    completed = subprocess.run(
+        [sys.executable, "-c", LOGGING_PROBE],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.fixture
@@ -231,3 +271,19 @@ def test_audit_log_keeps_payload_for_zone_named_like_sensitive_endpoint(caplog):
 
     record = caplog.records[0]
     assert "payload" in record.audit
+
+
+def test_no_log_file_written_when_log_file_unset(tmp_path: Path):
+    _run_logging_probe(tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
+    assert not (tmp_path / "log").exists()
+
+
+def test_log_file_written_when_log_file_set(tmp_path: Path):
+    log_file = tmp_path / "proxy.log"
+
+    _run_logging_probe(tmp_path, log_file)
+
+    assert "file logging probe" in log_file.read_text()
+    assert not (tmp_path / "log").exists()
