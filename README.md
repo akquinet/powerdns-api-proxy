@@ -451,8 +451,14 @@ Each audit log entry contains:
   - `method`: HTTP method (GET, POST, PUT, PATCH, DELETE)
   - `path`: Resource path that was accessed/modified
   - `status_code`: HTTP response status code
-  - `payload`: Request payload (optional, for write operations; omitted for sensitive endpoints like `/cryptokeys` and `/tsigkeys`)
+  - `payload`: Request payload (optional, for write operations; only captured for authenticated requests, truncated at 4 KiB, and omitted for sensitive endpoints like `/cryptokeys` and `/tsigkeys`)
   - `query_params`: Query parameters (optional, for GET requests)
+
+Request bodies are limited to 2 MB, matching PowerDNS's `webserver-max-bodysize`
+default. Larger requests are rejected with `413` before the body is read; bodies
+without a `Content-Length` are limited while streaming. Audit payload capture
+only happens for authenticated requests with a known `Content-Length`, so an
+unauthenticated client cannot write request bodies into the audit log.
 
 The upstream request and response logs for the `/cryptokeys` and `/tsigkeys`
 endpoints replace the body with `<redacted>`, because they carry DNSSEC private
