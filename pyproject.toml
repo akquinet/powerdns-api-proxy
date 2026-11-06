@@ -7,7 +7,7 @@ authors = [{ name = "akquinet", email = "noc@akquinet.de" }]
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp==3.14.5",
-    "fastapi==0.143.1",
+    "fastapi==0.162.0",
     "httpx",
     "prometheus-fastapi-instrumentator==8.1.0",
     "pyyaml==6.0.3",
