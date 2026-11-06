@@ -3,30 +3,19 @@
     "extends": [
         "config:best-practices"
     ],
-    "schedule": [
-        "on monday"
-    ],
     "minimumReleaseAge": "14 days",
-    "prCreation": "not-pending",
     "internalChecksFilter": "strict",
+    "separateMinorPatch": true,
     "packageRules": [
         {
+            "description": "Use fix commits for all dependency updates",
             "matchUpdateTypes": [
+                "major",
                 "minor",
-                "patch",
-                "digest",
-                "pin"
+                "patch"
             ],
-            "groupName": "all non-major dependencies",
-            "groupSlug": "all-non-major-updates"
-        },
-        {
-            "matchUpdateTypes": [
-                "major"
-            ],
-            "groupName": "all major dependencies",
-            "groupSlug": "all-major-updates",
-            "semanticCommitType": "fix"
+            "semanticCommitType": "fix",
+            "semanticCommitScope": "deps"
         }
     ]
 }
