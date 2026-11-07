@@ -1,4 +1,4 @@
-FROM docker.io/python:3.14.1-slim@sha256:b823ded4377ebb5ff1af5926702df2284e53cecbc6e3549e93a19d8632a1897e AS builder
+FROM docker.io/python:3.14.9-slim@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8 AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /uvx /bin/
 
@@ -15,7 +15,7 @@ COPY powerdns_api_proxy /app/powerdns_api_proxy
 RUN uv sync --frozen --no-dev
 
 
-FROM docker.io/python:3.14.1-slim@sha256:b823ded4377ebb5ff1af5926702df2284e53cecbc6e3549e93a19d8632a1897e
+FROM docker.io/python:3.14.9-slim@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
 
 WORKDIR /app
 
