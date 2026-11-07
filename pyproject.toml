@@ -23,7 +23,7 @@ dev = [
     "mypy==1.19.1",
     "prek==0.5.5",
     "pytest==9.0.3",
-    "pytest-cov==7.0.0",
+    "pytest-cov==7.1.0",
     "ruff==0.16.10",
     "types-PyYAML",
 ]
