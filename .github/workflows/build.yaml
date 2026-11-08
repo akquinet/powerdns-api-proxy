@@ -106,10 +106,12 @@ jobs:
         id: generate_token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
-          app-id: ${{ secrets.CICD_APP_ID }}
+          client-id: ${{ secrets.CICD_APP_ID }}
           private-key: ${{ secrets.CICD_APP_PRIVATE_KEY }}
 
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@d9bf53a078bd2f86aaffaec796dbb3d28f1b6f34 # v8.1.3
+        with:
+          skip_npm_plugin: true
         env:
           GITHUB_TOKEN: "${{ steps.generate_token.outputs.token }}"
