@@ -110,6 +110,6 @@ jobs:
           private-key: ${{ secrets.CICD_APP_PRIVATE_KEY }}
 
       - name: Semantic Release
-        uses: cycjimmy/semantic-release-action@v3
+        uses: cycjimmy/semantic-release-action@d9bf53a078bd2f86aaffaec796dbb3d28f1b6f34 # v8.1.3
         env:
           GITHUB_TOKEN: "${{ steps.generate_token.outputs.token }}"
