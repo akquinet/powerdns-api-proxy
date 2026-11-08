@@ -107,7 +107,7 @@ default_stream_handler.setFormatter(default_formatter)
 logger: AuditLogger = logging.getLogger("powerdns_api_proxy")  # type: ignore
 logger.addHandler(default_stream_handler)
 
-LOG_FILE = getenv("LOG_FILE", "log")
+LOG_FILE = getenv("LOG_FILE")
 if LOG_FILE and LOG_FILE.lower() != "false":
     try:
         file_handler = logging.handlers.RotatingFileHandler(
