@@ -33,13 +33,16 @@ def test_middleware_logs_get_request(client, caplog):
     assert "/zones" in audit["path"]
 
 
+VALID_TOKEN = "lashflkashlfgkashglashglashgl"
+
+
 def test_middleware_logs_post_request_with_payload(client, caplog):
     payload = {"name": "test.com", "kind": "Native"}
 
     client.post(
         "/api/v1/servers/localhost/zones",
         json=payload,
-        headers={"X-API-Key": "invalid"},
+        headers={"X-API-Key": VALID_TOKEN},
     )
 
     audit_records = [r for r in caplog.records if hasattr(r, "audit")]
@@ -67,6 +70,51 @@ def _audit_record(caplog):
     audit_records = [r for r in caplog.records if hasattr(r, "audit")]
     assert len(audit_records) > 0
     return audit_records[0].audit
+
+
+def test_middleware_does_not_log_payload_without_valid_token(client, caplog):
+    """An unauthenticated caller must not be able to write bodies to the log."""
+    client.post(
+        "/api/v1/servers/localhost/zones",
+        json={"name": "test.com", "junk": "x" * 100},
+        headers={"X-API-Key": "invalid"},
+    )
+
+    audit = _audit_record(caplog)
+    assert audit["environment"] == "UNAUTHENTICATED"
+    assert "payload" not in audit
+
+
+def test_middleware_truncates_large_payload(client, caplog):
+    """Payloads are capped so one request cannot flood or rotate the audit log."""
+    client.post(
+        "/api/v1/servers/localhost/zones",
+        json={"name": "test.com", "junk": "x" * 5000},
+        headers={"X-API-Key": VALID_TOKEN},
+    )
+
+    audit = _audit_record(caplog)
+    assert isinstance(audit["payload"], str)
+    assert audit["payload"].startswith("<truncated payload: ")
+
+
+def test_middleware_rejects_oversized_body_before_buffering(client, caplog):
+    """The body limit applies before authentication and is never read/logged."""
+    body = b'{"name": "' + b"a" * middleware.MAX_REQUEST_BODY_SIZE + b'"}'
+
+    response = client.post(
+        "/api/v1/servers/localhost/zones",
+        content=body,
+        headers={"X-API-Key": "invalid", "Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"error": "Request body too large"}
+
+    audit = _audit_record(caplog)
+    assert audit["environment"] == "UNAUTHENTICATED"
+    assert audit["status_code"] == 413
+    assert "payload" not in audit
 
 
 def _asgi_get_without_client(target_app, path):
