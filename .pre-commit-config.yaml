@@ -36,6 +36,11 @@ repos:
           - types-requests
           - types-PyYAML
 
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: "v1.32.0"
+    hooks:
+      - id: zizmor
+
   - repo: https://github.com/hadolint/hadolint
     rev: "v2.12.1-beta"
     hooks:
