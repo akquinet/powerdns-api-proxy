@@ -21,7 +21,7 @@ Homepage = "https://github.com/akquinet/powerdns-api-proxy"
 [dependency-groups]
 dev = [
     "mypy==2.4.0",
-    "prek==0.5.7",
+    "prek==0.5.9",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "ruff==0.17.2",
