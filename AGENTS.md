@@ -29,8 +29,8 @@ tools through `uv run` (or the Makefile) so they use the locked environment.
   requirements.txt files.
 - `pdns.py` has a `# type: ignore[call-arg]` on `verify_ssl=`: aiohttp accepts
   the kwarg at runtime but its type stubs don't, so mypy needs the suppression.
-- LOG_LEVEL defaults to DEBUG and LOG_FILE defaults to a `log` file; set
-  LOG_FILE=false when running local copies to avoid writing log files.
+- LOG_LEVEL defaults to DEBUG. File logging is off unless LOG_FILE is set; set
+  LOG_FILE=<path> to also write a rotating log file.
 
 ## Conventions
 

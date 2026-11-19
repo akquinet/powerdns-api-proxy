@@ -374,7 +374,7 @@ zone lists neither `records` nor `regex_records`.
 | `PROXY_CONFIG_PATH` | required | Path to the YAML configuration |
 | `LOG_LEVEL` | `DEBUG` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `LOG_FORMAT` | `text` | `text` or `json`; applies to application and uvicorn access logs |
-| `LOG_FILE` | `log` | Log file path; rotated at 100 MB with 5 backups; set to `false` to disable file logging |
+| `LOG_FILE` | unset | Path for an additional rotating log file (100 MB, 5 backups); unset or `false` disables file logging |
 | `LISTEN_HOST` | `*` | Address to bind to |
 | `LISTEN_PORT` | `8000` | Port to listen on |
 | `AUDIT_LOGGING` | `true` | Set to `false` to disable audit logging |
@@ -427,10 +427,10 @@ index_html: |
 
 ## Logging
 
-Logs are written to stderr and, unless `LOG_FILE=false` is set, also to a
-rotating log file. With `LOG_FORMAT=json`, application logs and uvicorn access
-logs are emitted as JSON. See
-[Environment variables](#environment-variables) for all log settings.
+Logs are written to stderr. Set `LOG_FILE=<path>` to additionally write them to
+a rotating log file (100 MB, 5 backups); when unset, no file is written. With
+`LOG_FORMAT=json`, application logs and uvicorn access logs are emitted as JSON.
+See [Environment variables](#environment-variables) for all log settings.
 
 ### Audit logging
 
@@ -608,7 +608,6 @@ the activated virtualenv (e.g. `pytest`, `prek run --all-files`).
 ```bash
 cp config-example.yml config.yml
 export PROXY_CONFIG_PATH=./config.yml
-export LOG_FILE=false   # avoid writing a log file next to the checkout
 make run
 ```
 
