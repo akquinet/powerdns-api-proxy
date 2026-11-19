@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from yaml import safe_load
 
@@ -62,11 +62,14 @@ def check_token_defined(config: ProxyConfig, token: str):
 
 
 def dependency_check_token_defined(
+    request: Request,
     X_API_Key: str | None = Header(default=None, description="API Key for the proxy."),
 ):
     if X_API_Key is None:
         raise NotAuthorizedException()
     check_token_defined(load_config(), X_API_Key)
+    # Authoritative success signal for the failed authentication rate limiter.
+    request.state.token_authenticated = True
 
 
 security = HTTPBasic()
