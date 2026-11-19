@@ -9,6 +9,10 @@ from powerdns_api_proxy.utils import is_sensitive_path
 LOG_LEVEL = getenv("LOG_LEVEL") or "DEBUG"
 LOG_FORMAT = getenv("LOG_FORMAT", "text").lower()  # text or json
 
+# Audit payloads are truncated so a client cannot flood the audit log (and
+# rotate away real entries) with a single large request body.
+MAX_LOGGED_PAYLOAD_BYTES = 4096
+
 logging_format = (
     "%(levelname)s - %(asctime)s - %(name)s - "
     + "%(filename)s - %(funcName)s - %(lineno)s - %(message)s"
@@ -43,6 +47,17 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_data)
 
 
+def _truncate_payload(payload: dict) -> dict | str:
+    """Keeps a logged payload below MAX_LOGGED_PAYLOAD_BYTES."""
+    try:
+        serialized = json.dumps(payload, default=str)
+    except (TypeError, ValueError):
+        return "<unserializable payload>"
+    if len(serialized) <= MAX_LOGGED_PAYLOAD_BYTES:
+        return payload
+    return f"<truncated payload: {len(serialized)} bytes>"
+
+
 class AuditLogger(logging.Logger):
     """Custom logger with audit() method"""
 
@@ -61,6 +76,10 @@ class AuditLogger(logging.Logger):
         if payload is not None and is_sensitive_path(path):
             payload = None
 
+        logged_payload: dict | str | None = (
+            _truncate_payload(payload) if payload is not None else None
+        )
+
         audit_data: dict[str, str | int | dict] = {
             "environment": environment,
             # Only written when present: the real address, or "unknown" when the
@@ -70,8 +89,8 @@ class AuditLogger(logging.Logger):
             "path": path,
             "status_code": status_code,
         }
-        if payload is not None:
-            audit_data["payload"] = payload
+        if logged_payload is not None:
+            audit_data["payload"] = logged_payload
         if query_params is not None and query_params:
             audit_data["query_params"] = query_params
 
@@ -83,8 +102,8 @@ class AuditLogger(logging.Logger):
         msg_parts = [f"AUDIT: {identity} {method} {path} {status_code}"]
         if query_params:
             msg_parts.append(f"query_params={query_params}")
-        if payload is not None:
-            msg_parts.append(f"payload={payload}")
+        if logged_payload is not None:
+            msg_parts.append(f"payload={logged_payload}")
 
         self.info(
             " ".join(msg_parts),

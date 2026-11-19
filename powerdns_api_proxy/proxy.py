@@ -15,6 +15,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 
 from powerdns_api_proxy.config import (
     check_pdns_config_allowed,
@@ -42,7 +43,7 @@ from powerdns_api_proxy.exceptions import (
 )
 from powerdns_api_proxy.logging import logger
 from powerdns_api_proxy.metrics import http_requests_total_environment
-from powerdns_api_proxy.middleware import AuditMiddleware
+from powerdns_api_proxy.middleware import MAX_REQUEST_BODY_SIZE, AuditMiddleware
 from powerdns_api_proxy.models import (
     ProxyConfigEnvironment,
     ProxyConfigZone,
@@ -89,6 +90,10 @@ if not config.api_docs_enabled:
         openapi_url=None,
     )
 
+# Order matters: add_middleware() inserts at the start of the stack, so the
+# body limit is added first and stays inside the audit middleware. The audit
+# middleware then sees (and logs) the 413 it returns for oversized bodies.
+app.add_middleware(RequestBodyLimitMiddleware, max_body_size=MAX_REQUEST_BODY_SIZE)
 app.add_middleware(AuditMiddleware)
 
 if config.metrics_enabled:
