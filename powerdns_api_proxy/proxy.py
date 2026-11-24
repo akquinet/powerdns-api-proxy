@@ -1,6 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 from http import HTTPStatus
+from pathlib import Path
 from typing import Literal
 
 from fastapi import (
@@ -12,7 +13,12 @@ from fastapi import (
     Request,
     Response,
 )
+from fastapi.openapi.docs import (
+    get_swagger_ui_html,
+    get_swagger_ui_oauth2_redirect_html,
+)
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -76,18 +82,46 @@ async def _startup(app: FastAPI):
     yield
 
 
-app = FastAPI(title="PowerDNS API Proxy", version="0.1.0", lifespan=_startup)
+OPENAPI_URL = "/openapi.json"
+SWAGGER_UI_URL = "/static/swagger-ui"
+SWAGGER_UI_OAUTH2_REDIRECT_URL = "/docs/oauth2-redirect"
+SWAGGER_UI_DIR = Path(__file__).parent / "static" / "swagger-ui"
 
-if not config.api_docs_enabled:
-    logger.info("Disabling API docs")
-    app = FastAPI(
-        title=app.title,
-        version=app.version,
-        lifespan=_startup,
-        docs_url=None,
-        redoc_url=None,
-        openapi_url=None,
+openapi_url: str | None = OPENAPI_URL if config.api_docs_enabled else None
+app = FastAPI(
+    title="PowerDNS API Proxy",
+    version="0.1.0",
+    lifespan=_startup,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=openapi_url,
+    swagger_ui_oauth2_redirect_url=SWAGGER_UI_OAUTH2_REDIRECT_URL,
+)
+
+if config.api_docs_enabled:
+    app.mount(
+        SWAGGER_UI_URL,
+        StaticFiles(directory=SWAGGER_UI_DIR),
+        name="swagger-ui",
     )
+
+    @app.get("/docs", include_in_schema=False)
+    async def swagger_ui():
+        return get_swagger_ui_html(
+            openapi_url=OPENAPI_URL,
+            title=f"{app.title} - Swagger UI",
+            swagger_js_url=f"{SWAGGER_UI_URL}/swagger-ui-bundle.js",
+            swagger_css_url=f"{SWAGGER_UI_URL}/swagger-ui.css",
+            swagger_favicon_url=f"{SWAGGER_UI_URL}/favicon-32x32.png",
+            oauth2_redirect_url=SWAGGER_UI_OAUTH2_REDIRECT_URL,
+        )
+
+    @app.get(SWAGGER_UI_OAUTH2_REDIRECT_URL, include_in_schema=False)
+    async def swagger_ui_redirect():
+        return get_swagger_ui_oauth2_redirect_html()
+else:
+    logger.info("Disabling API docs")
+
 
 app.add_middleware(AuditMiddleware)
 
