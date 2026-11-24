@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import subprocess
+import sys
 from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -95,6 +97,75 @@ def test_index_disabled():
     with patch("powerdns_api_proxy.proxy.config", custom_config):
         response = client.get("/")
         assert response.status_code == 404
+
+
+def test_docs_uses_local_assets():
+    response = client.get("/docs")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "/static/swagger-ui/swagger-ui.css" in response.text
+    assert "/static/swagger-ui/swagger-ui-bundle.js" in response.text
+    assert "/static/swagger-ui/favicon-32x32.png" in response.text
+    assert "https://" not in response.text
+    assert "http://" not in response.text
+    assert client.get("/openapi.json").status_code == 200
+
+
+def test_docs_oauth2_redirect_is_served():
+    response = client.get("/docs/oauth2-redirect")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Swagger UI: OAuth2 Redirect" in response.text
+
+
+@pytest.mark.parametrize(
+    ("path", "content_type"),
+    [
+        ("/static/swagger-ui/swagger-ui.css", "text/css"),
+        ("/static/swagger-ui/swagger-ui-bundle.js", "javascript"),
+        ("/static/swagger-ui/favicon-32x32.png", "image/png"),
+    ],
+)
+def test_docs_assets_are_served(path, content_type):
+    response = client.get(path)
+
+    assert response.status_code == 200
+    assert content_type in response.headers["content-type"]
+    assert response.content
+
+
+def test_redoc_is_disabled():
+    assert client.get("/redoc").status_code == 404
+
+
+def test_docs_disabled_removes_docs_routes(tmp_path):
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(
+        """pdns_api_url: http://localhost
+pdns_api_token: token
+api_docs_enabled: false
+environments: []
+"""
+    )
+    env = os.environ | {
+        "PROXY_CONFIG_PATH": str(config_path),
+        "LOG_FILE": "false",
+        "LOG_LEVEL": "WARNING",
+    }
+    script = """
+from fastapi.testclient import TestClient
+from powerdns_api_proxy.proxy import app
+
+client = TestClient(app)
+assert client.get("/docs").status_code == 404
+assert client.get("/redoc").status_code == 404
+assert client.get("/openapi.json").status_code == 404
+assert client.get("/static/swagger-ui/swagger-ui.css").status_code == 404
+"""
+
+    subprocess.run([sys.executable, "-c", script], env=env, check=True)
 
 
 def test_health_liveness_without_token():

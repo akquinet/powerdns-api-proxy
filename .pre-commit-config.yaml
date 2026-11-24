@@ -1,4 +1,8 @@
 ---
+# Vendored Swagger UI assets are kept byte-identical to the npm release and are
+# larger than the default check-added-large-files limit.
+exclude: ^powerdns_api_proxy/static/
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: "v5.0.0"

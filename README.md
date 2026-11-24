@@ -398,12 +398,17 @@ Set `metrics_enabled: false` to disable the endpoint, and
 
 ### API documentation
 
-The API documentation is available at `/docs`. It can be disabled, including
-the OpenAPI schema, with:
+The API documentation is available at `/docs`. The Swagger UI assets are
+bundled with the proxy, so the page works without internet access. The bundled
+Swagger UI version is 5.36.0.
+
+It can be disabled, including the OpenAPI schema, with:
 
 ```yaml
 api_docs_enabled: false # default is true
 ```
+
+The `/redoc` endpoint is disabled; only Swagger UI is served.
 
 ### Index page
 
