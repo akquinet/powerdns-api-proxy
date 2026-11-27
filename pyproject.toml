@@ -11,7 +11,7 @@ dependencies = [
     "httpx",
     "prometheus-fastapi-instrumentator==8.1.0",
     "pyyaml==6.0.3",
-    "sentry-sdk[fastapi]==2.73.0",
+    "sentry-sdk[fastapi]==2.75.0",
     "uvicorn==0.54.0",
 ]
 
@@ -20,11 +20,11 @@ Homepage = "https://github.com/akquinet/powerdns-api-proxy"
 
 [dependency-groups]
 dev = [
-    "mypy==2.4.0",
-    "prek==0.5.7",
-    "pytest==9.1.1",
+    "mypy==2.4.1",
+    "prek==0.5.12",
+    "pytest==9.2.0",
     "pytest-cov==7.1.0",
-    "ruff==0.17.2",
+    "ruff==0.17.6",
     "types-PyYAML",
 ]
 
